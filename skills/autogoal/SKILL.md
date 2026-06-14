@@ -7,7 +7,7 @@ description: Run autonomous long-horizon goal loops in research, development, or
 
 You are running an autonomous long-horizon goal workflow. The active mode is stored in `.autogoal/state.json` as `mode`:
 
-- `research`: gather sources/evidence, synthesize findings, and evolve the goal.
+- `research`: gather sources, synthesize findings, capture leads, and evolve the goal.
 - `development`: write code in implement → test → review → commit cycles. Durable progress should be git commits, not long-lived reports/artifacts.
 - `optimization`: improve a target metric through reproducible measurements and experiments.
 
@@ -26,12 +26,11 @@ Required layout:
   plan.md
   backlog.md
   questions.md
-  interesting.md
+  leads.md
   subagents.md
   sources.jsonl
-  evidence.jsonl
+  findings.jsonl
   metrics.jsonl
-  commits.jsonl
   events.jsonl
   cycles/
   reports/
@@ -45,9 +44,9 @@ If files are missing, create them. Preserve existing user data; do not overwrite
 
 ### Research
 
-1. Read goal/plan/backlog/questions/interesting and recent cycles/evidence/sources.
+1. Read goal/plan/backlog/questions/leads and recent cycles/findings/sources.
 2. Refine questions and hypotheses.
-3. Gather and evaluate sources/evidence.
+3. Gather sources, synthesize findings, and capture leads.
 4. Update living docs, write a cycle report, refresh the next-cycle prompt.
 
 ### Development
@@ -56,7 +55,7 @@ If files are missing, create them. Preserve existing user data; do not overwrite
 2. Select one small valuable implementation slice.
 3. Use `prepare_worktree` or git worktrees for isolated/risky/parallel edits.
 4. Use subagents when useful: `scout` for context, `planner` for a plan, `worker` for implementation, `reviewer` for diff review, `oracle` for consistency.
-5. Run relevant tests/lint/typecheck, review the diff, commit verified changes, and call `log_commit`.
+5. Run relevant tests/lint/typecheck, review the diff, commit verified changes, and rely on git/GitHub history.
 6. Avoid durable ad-hoc reports/artifacts for normal progress. Keep concise state/backlog/next-prompt updates only.
 
 ### Optimization
@@ -64,7 +63,7 @@ If files are missing, create them. Preserve existing user data; do not overwrite
 1. Define the metric, baseline, measurement command, constraints, and stop conditions.
 2. Generate hypotheses and choose one high-leverage experiment.
 3. Use worktrees/subagents for isolated experiments and review.
-4. Measure before/after, call `log_metric`, keep/revert based on evidence, and update the next experiment.
+4. Measure before/after, call `log_metric`, record findings/leads, keep/revert based on evidence, and update the next experiment.
 5. Write cycle reports when useful for experiment traceability.
 
 ## Subagents and intercom
@@ -85,10 +84,9 @@ If files are missing, create them. Preserve existing user data; do not overwrite
 When available, prefer Autogoal tools for durable log/state updates:
 
 - `log_source`: record a source with title/url/type/quality/notes.
-- `log_evidence`: record claims, support, confidence, source, and implications.
-- `log_interesting`: record surprising observations and follow-ups.
+- `log_finding`: record checked conclusions with support, confidence, sources, and implications.
+- `log_lead`: record promising but unverified follow-up ideas, anomalies, or weak signals.
 - `log_metric`: record optimization metric observations.
-- `log_commit`: record development commits and checks.
 - `prepare_worktree`: create an isolated git worktree/branch and update state.
 - `log_goal_cycle`: finish a cycle, write a cycle report, refresh the next-cycle prompt, and advance state. For long prompts, write `.autogoal/self-prompts/next-cycle.md` first and pass `nextPromptFile`.
 - `set_goal_state`: patch `.autogoal/state.json` when pausing/resuming, changing mode, or marking `requiresHuman`.
@@ -100,7 +98,7 @@ Do not pass large artifact bodies through function-call arguments. Store them in
 At the end of every cycle, refresh `.autogoal/self-prompts/next-cycle.md` with:
 
 - current goal and active mode,
-- known evidence/metrics/commits,
+- known sources/findings/leads/metrics and recent git commits,
 - unresolved questions/blockers,
 - highest-leverage next tasks,
 - suggested subagents/resources,
@@ -122,7 +120,7 @@ After compaction:
 
 Use `.autogoal/config.json` values as guidance:
 
-- Every `reviewEveryCycles`, explicitly review the plan, evidence/metric quality, stale backlog items, and commit health.
+- Every `reviewEveryCycles`, explicitly review the plan, finding/metric quality, stale backlog items, and commit health.
 - Every `oracleEveryCycles`, use `oracle` or reviewer-style consistency checking when available.
 - If `maxNoProgressCycles` pass without meaningful progress, change strategy.
 - Respect configured `maxAutoTurns`, `maxCycles`, and `stopIfRequiresHuman`.

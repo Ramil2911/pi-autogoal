@@ -59,14 +59,15 @@ export interface AutogoalPaths {
   plan: string;
   backlog: string;
   questions: string;
-  interesting: string;
+  leads: string;
   sources: string;
-  evidence: string;
+  findings: string;
+  legacyInteresting: string;
+  legacyEvidence: string;
   events: string;
   modeGuide: string;
   subagentsGuide: string;
   metrics: string;
-  commits: string;
   cyclesDir: string;
   reportsDir: string;
   selfPromptsDir: string;
@@ -84,7 +85,7 @@ export const DEFAULT_CONFIG: AutogoalConfig = {
   requireHumanOnGoalShift: false,
   settleMs: 800,
   stopIfRequiresHuman: true,
-  defaultCycleBudget: "one focused subcycle unless evidence requires more",
+  defaultCycleBudget: "one focused subcycle unless findings require more",
   worktrees: {
     enabled: true,
     root: "../.autogoal-worktrees",
@@ -144,14 +145,15 @@ export function autogoalPaths(cwd: string): AutogoalPaths {
     plan: path.join(root, "plan.md"),
     backlog: path.join(root, "backlog.md"),
     questions: path.join(root, "questions.md"),
-    interesting: path.join(root, "interesting.md"),
+    leads: path.join(root, "leads.md"),
     sources: path.join(root, "sources.jsonl"),
-    evidence: path.join(root, "evidence.jsonl"),
+    findings: path.join(root, "findings.jsonl"),
+    legacyInteresting: path.join(root, "interesting.md"),
+    legacyEvidence: path.join(root, "evidence.jsonl"),
     events: path.join(root, "events.jsonl"),
     modeGuide: path.join(root, "mode.md"),
     subagentsGuide: path.join(root, "subagents.md"),
     metrics: path.join(root, "metrics.jsonl"),
-    commits: path.join(root, "commits.jsonl"),
     cyclesDir: path.join(root, "cycles"),
     reportsDir: path.join(root, "reports"),
     selfPromptsDir,
@@ -273,8 +275,8 @@ export function ensureWorkspace(cwd: string, title = "Untitled goal", abstract =
     mode === "development"
       ? "Deliver working code in verified, reviewable git commits. Keep durable output in git history rather than ad-hoc artifacts."
       : mode === "optimization"
-        ? "Improve the target metric through evidence-backed experiments. Preserve the baseline abstract above."
-        : "Refine this section as evidence accumulates. Preserve the baseline abstract above.",
+        ? "Improve the target metric through findings-backed experiments. Preserve the baseline abstract above."
+        : "Refine this section as findings accumulate. Preserve the baseline abstract above.",
     ...(mode === "optimization" ? ["", "## Target metric", metric.trim() || "Define the metric, baseline, measurement command, and target delta."] : []),
     "",
     "## Decision log",
@@ -295,13 +297,12 @@ export function ensureWorkspace(cwd: string, title = "Untitled goal", abstract =
   ].join("\n"));
   writeIfMissing(paths.backlog, `# Backlog\n\n- [ ] Decompose the next ${mode} subcycle.\n`);
   writeIfMissing(paths.questions, "# Open Questions\n\n");
-  writeIfMissing(paths.interesting, "# Interesting Observations\n\nCapture surprising links, anomalies, weak signals, and side hypotheses here.\n");
+  writeIfMissing(paths.leads, "# Leads\n\nCapture promising but unverified follow-up ideas, anomalies, weak signals, and side hypotheses here.\n");
   writeIfMissing(paths.modeGuide, defaultModeGuide(mode));
   writeIfMissing(paths.subagentsGuide, defaultSubagentsGuide(mode));
   writeIfMissing(paths.sources, "");
-  writeIfMissing(paths.evidence, "");
+  writeIfMissing(paths.findings, "");
   writeIfMissing(paths.metrics, "");
-  writeIfMissing(paths.commits, "");
   writeIfMissing(paths.events, "");
   writeIfMissing(paths.nextCycle, defaultNextCyclePrompt(mode));
   return paths;
@@ -332,7 +333,7 @@ function defaultPlanSteps(mode: AutogoalMode): string[] {
 function defaultPlanItem(mode: AutogoalMode): string {
   if (mode === "development") return "- [ ] Establish the first implement-test-review-commit slice.";
   if (mode === "optimization") return "- [ ] Establish baseline metric and first experiment queue.";
-  return "- [ ] Establish the first evidence-backed research questions.";
+  return "- [ ] Establish the first findings-backed research questions.";
 }
 
 export function defaultModeGuide(mode: AutogoalMode): string {
@@ -349,7 +350,7 @@ export function defaultModeGuide(mode: AutogoalMode): string {
     "# Optimization Mode",
     "",
     "Primary loop: define metric → measure baseline → form hypotheses → run experiments → compare deltas → keep/revert → choose next experiment.",
-    "Log metric observations in `.autogoal/metrics.jsonl` and evidence in `.autogoal/evidence.jsonl`.",
+    "Log metric observations in `.autogoal/metrics.jsonl`, sources in `.autogoal/sources.jsonl`, and findings in `.autogoal/findings.jsonl`.",
     "Prefer controlled experiments, reproducible commands, and explicit stop conditions.",
     "Use subagents for hypothesis generation, experiment implementation, review, and consistency checks.",
     "",
@@ -357,8 +358,8 @@ export function defaultModeGuide(mode: AutogoalMode): string {
   return [
     "# Research Mode",
     "",
-    "Primary loop: refine questions → gather sources/evidence → analyze → synthesize findings → update next prompt.",
-    "Persist sources, evidence, interesting observations, cycle reports, and self-prompts under `.autogoal/`.",
+    "Primary loop: refine questions → gather sources → synthesize findings → capture leads → update next prompt.",
+    "Persist sources, findings, leads, cycle reports, and self-prompts under `.autogoal/`.",
     "Use subagents for scouting, parallel research, review, and oracle consistency checks when useful.",
     "",
   ].join("\n");
@@ -375,7 +376,7 @@ export function defaultSubagentsGuide(mode: AutogoalMode): string {
     "- `scout`: fast context gathering over code/docs.",
     "- `planner`: implementation/research/experiment plan.",
     "- `worker`: isolated implementation, preferably in a git worktree for code changes.",
-    "- `reviewer`: diff, plan, and evidence review.",
+    "- `reviewer`: diff, plan, and findings/source review.",
     "- `oracle`: consistency check for long-running goals and hidden assumptions.",
     "- `researcher`/`delegate`: focused external research or lightweight tasks.",
     "",
@@ -409,10 +410,10 @@ export function defaultNextCyclePrompt(mode: AutogoalMode = "research"): string 
       "Continue the Autogoal optimization loop for this workspace.",
       "",
       "Required actions:",
-      "1. Read `.autogoal/goal.md`, `.autogoal/plan.md`, `.autogoal/backlog.md`, `.autogoal/mode.md`, recent cycles, evidence, and metrics.",
+      "1. Read `.autogoal/goal.md`, `.autogoal/plan.md`, `.autogoal/backlog.md`, `.autogoal/mode.md`, recent cycles, findings, leads, sources, and metrics.",
       "2. Confirm the metric/baseline or run a measurement, then choose one high-leverage experiment.",
       "3. Use subagents/worktrees for hypothesis generation, implementation, and review when useful.",
-      "4. Record metric observations in `.autogoal/metrics.jsonl`, evidence in `.autogoal/evidence.jsonl`, and a cycle report.",
+      "4. Record metric observations in `.autogoal/metrics.jsonl`, findings in `.autogoal/findings.jsonl`, and leads in `.autogoal/leads.md`.",
       "5. Update `.autogoal/state.json` and `.autogoal/self-prompts/next-cycle.md` with next experiment and stop conditions.",
     ].join("\n");
   }
@@ -420,9 +421,9 @@ export function defaultNextCyclePrompt(mode: AutogoalMode = "research"): string 
     "Continue the Autogoal research loop for this workspace.",
     "",
     "Required actions:",
-    "1. Read `.autogoal/goal.md`, `.autogoal/plan.md`, `.autogoal/backlog.md`, `.autogoal/interesting.md`, and recent `.autogoal/cycles/*` as needed.",
+    "1. Read `.autogoal/goal.md`, `.autogoal/plan.md`, `.autogoal/backlog.md`, `.autogoal/leads.md`, and recent `.autogoal/cycles/*` as needed.",
     "2. Run one focused subcycle: short-term task selection → subagent/resource plan → work → compile/analyze → re-evaluate.",
-    "3. Update the living artifacts: goal/plan/backlog/questions/interesting/sources/evidence.",
+    "3. Update the living artifacts: goal/plan/backlog/questions/leads/sources/findings.",
     "4. Write a new cycle report under `.autogoal/cycles/` and refresh `.autogoal/self-prompts/next-cycle.md`.",
     "5. Update `.autogoal/state.json` with the new cycleIndex and status. Keep status `running` unless a stop condition is met.",
   ].join("\n");

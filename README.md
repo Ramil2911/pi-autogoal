@@ -4,7 +4,7 @@ Autonomous goal loops for [pi](https://pi.dev/): research, development, and metr
 
 ## Modes
 
-- **Research** — the existing long-running evidence/sources/cycle-report workflow.
+- **Research** — the existing long-running sources/findings/leads/cycle-report workflow.
 - **Development** — autonomous code work in implement → test → review → commit cycles. Normal durable output is git commits, not long-lived reports/artifacts.
 - **Optimization** — autonomous research and experiments to improve a named metric, with reproducible measurements and metric logs.
 
@@ -14,7 +14,7 @@ Autonomous goal loops for [pi](https://pi.dev/): research, development, and metr
 - `autogoal` skill with mode-specific protocols.
 - Workspace state in `.autogoal/`, so each repo/folder has durable goal state.
 - Autonomous self-prompting via `agent_end -> sendUserMessage(next-cycle)`.
-- Structured tools: `log_source`, `log_evidence`, `log_interesting`, `log_metric`, `log_commit`, `prepare_worktree`, `log_goal_cycle`, `set_goal_state`.
+- Structured tools: `log_source`, `log_finding`, `log_lead`, `log_metric`, `prepare_worktree`, `log_goal_cycle`, `set_goal_state`.
 - Git worktree defaults for isolated branches.
 - Subagent guidance for planner/worker/reviewer/oracle flows, acceptance contracts, and pi-intercom coordination.
 - Deterministic compaction summary from persisted `.autogoal/` state.
@@ -94,7 +94,7 @@ Examples:
 - `pause` stops auto-resume but keeps tools/state available.
 - `resume` enables auto-resume again and sends the next-cycle prompt.
 - `off` stops Autogoal and disables gated Autogoal tools.
-- `status` shows the active mode, cycle counters, evidence/metric/commit counts, and human gate state.
+- `status` shows the active mode, cycle counters, findings/leads/metric counts, and human gate state.
 
 ## Workspace layout
 
@@ -107,12 +107,11 @@ Examples:
   plan.md
   backlog.md
   questions.md
-  interesting.md
+  leads.md
   subagents.md
   sources.jsonl
-  evidence.jsonl
+  findings.jsonl
   metrics.jsonl
-  commits.jsonl
   events.jsonl
   cycles/
   reports/
@@ -150,10 +149,9 @@ Subagent recommendation: do **not** set `timeoutMs`/`maxRuntimeMs` for autonomou
 ## Structured tools
 
 - `log_source` → append `.autogoal/sources.jsonl`
-- `log_evidence` → append `.autogoal/evidence.jsonl`
-- `log_interesting` → append `.autogoal/interesting.md` and `.autogoal/events.jsonl`
+- `log_finding` → append `.autogoal/findings.jsonl` for checked conclusions
+- `log_lead` → append `.autogoal/leads.md` for unverified follow-up ideas
 - `log_metric` → append `.autogoal/metrics.jsonl` for optimization measurements
-- `log_commit` → append `.autogoal/commits.jsonl` for development commits
 - `prepare_worktree` → create an isolated git worktree/branch and record it in state
 - `log_goal_cycle` → write `cycles/cycle-NNN.md`, refresh `self-prompts/next-cycle.md`, advance `state.json`
 - `set_goal_state` → patch mode/status/auto/title/metric/repo/branch/worktree/human gate
@@ -166,7 +164,7 @@ Autogoal may use local git and the GitHub CLI (`gh`) when available. External mu
 
 ## Compaction and hooks
 
-During pi compaction, Autogoal synthesizes a deterministic markdown summary from persisted workspace files: goal, mode, plan, backlog, interesting notes, recent cycles, evidence, sources, metrics, and commits.
+During pi compaction, Autogoal synthesizes a deterministic markdown summary from persisted workspace files: goal, mode, plan, backlog, leads, recent cycles, sources, findings, and metrics.
 
 Executable hooks can steer the next turn:
 

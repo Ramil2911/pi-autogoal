@@ -19,12 +19,11 @@ Expected artifacts after initialization:
   plan.md
   backlog.md
   questions.md
-  interesting.md
+  leads.md
   subagents.md
   sources.jsonl
-  evidence.jsonl
+  findings.jsonl
   metrics.jsonl
-  commits.jsonl
   events.jsonl
   cycles/
   reports/

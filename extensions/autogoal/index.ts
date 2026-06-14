@@ -113,8 +113,8 @@ function markdownCycle(params: Record<string, unknown>, index: number): string {
     "## Findings",
     String(params.findings ?? ""),
     "",
-    "## Interesting observations",
-    String(params.interesting ?? ""),
+    "## Leads",
+    String(params.leads ?? params.interesting ?? ""),
     "",
     "## Checks / validation",
     String(params.checks ?? ""),
@@ -131,6 +131,15 @@ function markdownCycle(params: Record<string, unknown>, index: number): string {
     );
   }
   return lines.join("\n");
+}
+
+function countMarkdownList(file: string): number {
+  try {
+    if (!fs.existsSync(file)) return 0;
+    return fs.readFileSync(file, "utf-8").split("\n").filter((line) => /^\s*-\s+/.test(line)).length;
+  } catch {
+    return 0;
+  }
 }
 
 function latestAssistantLimitReason(messages: unknown[]): string | null {
@@ -210,8 +219,8 @@ function statusText(ctx: ExtensionContext): string {
   const state = readState(ctx.cwd);
   const config = readConfig(ctx.cwd);
   const p = autogoalPaths(ctx.cwd);
-  const modeExtra = state.mode === "optimization" ? ` · metrics ${countJsonl(p.metrics)}` : state.mode === "development" ? ` · commits ${countJsonl(p.commits)}` : "";
-  return `Autogoal ${state.mode}/${state.status} · cycle ${state.cycleIndex}/${config.maxCycles} · auto ${state.autoTurnsSent}/${config.maxAutoTurns} · sources ${countJsonl(p.sources)} · evidence ${countJsonl(p.evidence)}${modeExtra} · human=${state.requiresHuman}`;
+  const modeExtra = state.mode === "optimization" ? ` · metrics ${countJsonl(p.metrics)}` : "";
+  return `Autogoal ${state.mode}/${state.status} · cycle ${state.cycleIndex}/${config.maxCycles} · auto ${state.autoTurnsSent}/${config.maxAutoTurns} · sources ${countJsonl(p.sources)} · findings ${countJsonl(p.findings)} · leads ${countMarkdownList(p.leads)}${modeExtra} · human=${state.requiresHuman}`;
 }
 
 function setAutogoalStatus(ctx: ExtensionContext): void {
@@ -275,7 +284,7 @@ export default function autogoalExtension(pi: ExtensionAPI) {
   const fireBeforeHook = async (ctx: ExtensionContext, reason: string): Promise<void> => {
     const state = readState(ctx.cwd);
     const p = autogoalPaths(ctx.cwd);
-    const result = await runAutogoalHook(ctx.cwd, "before-cycle", { reason, mode: state.mode, state, recentEvidence: tailJsonl(p.evidence, 5), recentMetrics: tailJsonl(p.metrics, 5), recentCommits: tailJsonl(p.commits, 5) });
+    const result = await runAutogoalHook(ctx.cwd, "before-cycle", { reason, mode: state.mode, state, recentFindings: tailJsonl(p.findings, 5), recentMetrics: tailJsonl(p.metrics, 5) });
     logHook(ctx.cwd, "before-cycle", result);
     const message = hookMessage("before-cycle", result);
     if (message) pi.sendUserMessage(message, { deliverAs: "steer" });
@@ -370,12 +379,12 @@ export default function autogoalExtension(pi: ExtensionAPI) {
       `## Autogoal ${modeTitle(mode)} Mode`,
       `Workspace state lives in \`${AUTOGOAL_DIR}/\`. Treat these files as the source of truth, not the chat history.`,
       `Read/update: \`${paths.goal}\`, \`${paths.plan}\`, \`${paths.backlog}\`, \`${paths.modeGuide}\`, \`${paths.subagentsGuide}\`, and \`${paths.nextCycle}\`.`,
-      "Use Autogoal tools when available: log_source, log_evidence, log_interesting, log_metric, log_commit, prepare_worktree, log_goal_cycle, set_goal_state.",
+      "Use Autogoal tools when available: log_source, log_finding, log_lead, log_metric, prepare_worktree, log_goal_cycle, set_goal_state. Legacy aliases log_evidence/log_interesting may exist for old workspaces.",
       mode === "development"
         ? "Development durability rule: normal progress should be durable through git commits, not long-lived reports/artifacts. Run relevant tests before committing."
         : mode === "optimization"
           ? "Optimization rule: define/measure the metric, record metric observations, compare deltas, and keep experiments reproducible."
-          : "Research rule: maintain an evolving goal, evidence log, interesting observations, cycle report, and next-cycle self-prompt.",
+          : "Research rule: maintain an evolving goal, sources, findings, leads, cycle report, and next-cycle self-prompt.",
       `Git worktrees are ${config.worktrees.enabled ? "enabled" : "disabled"}; default root is \`${config.worktrees.root}\` and branch prefix is \`${config.worktrees.branchPrefix}\`.`,
       config.subagents.enabled
         ? `Subagents are recommended for planning, implementation, review, oracle checks, and parallel research. Timeout policy: ${config.subagents.timeoutPolicy}. Preferred agents: ${config.subagents.preferredAgents.join(", ")}. Use acceptance contracts for implementation/optimization handoffs.`
@@ -407,28 +416,66 @@ export default function autogoalExtension(pi: ExtensionAPI) {
   });
 
   registerGatedTool({
-    name: "log_evidence",
-    label: "Log Evidence",
-    description: "Append an evidence record to .autogoal/evidence.jsonl.",
+    name: "log_finding",
+    label: "Log Finding",
+    description: "Append a finding record to .autogoal/findings.jsonl. Findings are checked conclusions; sources explain where they came from.",
     parameters: objectSchema({
-      claim: stringProp("Claim, observation, or result"),
-      support: stringProp("Evidence supporting or refuting the claim"),
+      claim: stringProp("Conclusion, observation, or result"),
+      support: stringProp("What supports or refutes the claim; cite sources/checks when possible"),
       confidence: stringProp("low, medium, high, or unknown"),
-      source: stringProp("Source id/url/path if available"),
-      implications: stringProp("Why this matters for the research plan"),
+      sources: stringProp("Source ids/urls/paths/checks if available"),
+      implications: stringProp("Why this matters for the goal/plan"),
     }, ["claim", "support"]),
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const state = readState(ctx.cwd);
       ensureWorkspace(ctx.cwd, state.title ?? "Untitled goal", "", state.mode);
-      appendJsonl(autogoalPaths(ctx.cwd).evidence, { type: "evidence", ...params });
-      return { content: [{ type: "text", text: `✅ Evidence logged: ${String(params.claim).slice(0, 120)}` }], details: { params } };
+      appendJsonl(autogoalPaths(ctx.cwd).findings, { type: "finding", ...params });
+      return { content: [{ type: "text", text: `✅ Finding logged: ${String(params.claim).slice(0, 120)}` }], details: { params } };
+    },
+  });
+
+  registerGatedTool({
+    name: "log_evidence",
+    label: "Log Evidence (legacy)",
+    description: "Legacy alias for log_finding. Appends to .autogoal/findings.jsonl.",
+    parameters: objectSchema({
+      claim: stringProp("Conclusion, observation, or result"),
+      support: stringProp("What supports or refutes the claim"),
+      confidence: stringProp("low, medium, high, or unknown"),
+      source: stringProp("Legacy source id/url/path if available"),
+      implications: stringProp("Why this matters for the goal/plan"),
+    }, ["claim", "support"]),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const state = readState(ctx.cwd);
+      ensureWorkspace(ctx.cwd, state.title ?? "Untitled goal", "", state.mode);
+      appendJsonl(autogoalPaths(ctx.cwd).findings, { type: "finding", legacyTool: "log_evidence", sources: params.source, ...params });
+      return { content: [{ type: "text", text: `✅ Finding logged via legacy log_evidence: ${String(params.claim).slice(0, 120)}` }], details: { params } };
+    },
+  });
+
+  registerGatedTool({
+    name: "log_lead",
+    label: "Log Lead",
+    description: "Record an unverified lead/follow-up idea in .autogoal/leads.md and events.jsonl.",
+    parameters: objectSchema({
+      lead: stringProp("Promising but unverified idea, anomaly, weak signal, or follow-up direction"),
+      why: stringProp("Why it may matter"),
+      followup: stringProp("Possible follow-up"),
+    }, ["lead"]),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const state = readState(ctx.cwd);
+      ensureWorkspace(ctx.cwd, state.title ?? "Untitled goal", "", state.mode);
+      const p = autogoalPaths(ctx.cwd);
+      fs.appendFileSync(p.leads, `\n- **${new Date().toISOString()}** ${params.lead}${params.why ? ` — ${params.why}` : ""}${params.followup ? ` (follow-up: ${params.followup})` : ""}\n`);
+      appendEvent(p.events, "lead", params as Record<string, unknown>);
+      return { content: [{ type: "text", text: "✅ Lead recorded" }], details: { params } };
     },
   });
 
   registerGatedTool({
     name: "log_interesting",
-    label: "Log Interesting",
-    description: "Record an interesting observation in .autogoal/interesting.md and events.jsonl.",
+    label: "Log Interesting (legacy)",
+    description: "Legacy alias for log_lead. Appends to .autogoal/leads.md.",
     parameters: objectSchema({
       observation: stringProp("Surprising observation, weak signal, anomaly, or side hypothesis"),
       why: stringProp("Why it may matter"),
@@ -438,9 +485,9 @@ export default function autogoalExtension(pi: ExtensionAPI) {
       const state = readState(ctx.cwd);
       ensureWorkspace(ctx.cwd, state.title ?? "Untitled goal", "", state.mode);
       const p = autogoalPaths(ctx.cwd);
-      fs.appendFileSync(p.interesting, `\n- **${new Date().toISOString()}** ${params.observation}${params.why ? ` — ${params.why}` : ""}${params.followup ? ` (follow-up: ${params.followup})` : ""}\n`);
-      appendEvent(p.events, "interesting", params as Record<string, unknown>);
-      return { content: [{ type: "text", text: "✅ Interesting observation recorded" }], details: { params } };
+      fs.appendFileSync(p.leads, `\n- **${new Date().toISOString()}** ${params.observation}${params.why ? ` — ${params.why}` : ""}${params.followup ? ` (follow-up: ${params.followup})` : ""}\n`);
+      appendEvent(p.events, "lead", { legacyTool: "log_interesting", ...params } as Record<string, unknown>);
+      return { content: [{ type: "text", text: "✅ Lead recorded via legacy log_interesting" }], details: { params } };
     },
   });
 
@@ -462,26 +509,6 @@ export default function autogoalExtension(pi: ExtensionAPI) {
       appendJsonl(autogoalPaths(ctx.cwd).metrics, { type: "metric", mode: state.mode, ...params });
       appendEvent(autogoalPaths(ctx.cwd).events, "metric", params as Record<string, unknown>);
       return { content: [{ type: "text", text: `✅ Metric logged: ${params.name}=${params.value}` }], details: { params } };
-    },
-  });
-
-  registerGatedTool({
-    name: "log_commit",
-    label: "Log Commit",
-    description: "Record a development commit in .autogoal/commits.jsonl.",
-    parameters: objectSchema({
-      sha: stringProp("Commit SHA"),
-      branch: stringProp("Branch name"),
-      summary: stringProp("What changed"),
-      checks: stringProp("Tests/lint/typecheck/review performed"),
-      pullRequest: stringProp("PR URL/number if created"),
-    }, ["sha", "summary"]),
-    async execute(_id, params, _signal, _onUpdate, ctx) {
-      const state = readState(ctx.cwd);
-      ensureWorkspace(ctx.cwd, state.title ?? "Untitled goal", "", state.mode);
-      appendJsonl(autogoalPaths(ctx.cwd).commits, { type: "commit", mode: state.mode, ...params });
-      appendEvent(autogoalPaths(ctx.cwd).events, "commit", params as Record<string, unknown>);
-      return { content: [{ type: "text", text: `✅ Commit logged: ${String(params.sha).slice(0, 12)}` }], details: { params } };
     },
   });
 
@@ -559,7 +586,7 @@ export default function autogoalExtension(pi: ExtensionAPI) {
       title: stringProp("Cycle title"),
       summary: stringProp("What was done"),
       findings: stringProp("Main findings"),
-      interesting: stringProp("Interesting observations"),
+      leads: stringProp("Leads, unresolved ideas, or follow-up directions"),
       checks: stringProp("Validation/review/checks performed"),
       nextPrompt: stringProp("Concise self-prompt for the next cycle. Prefer nextPromptFile for long prompts."),
       nextPromptFile: stringProp("Path under .autogoal/ containing the full next-cycle prompt, e.g. .autogoal/self-prompts/next-cycle.md"),

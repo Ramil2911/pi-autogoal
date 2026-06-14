@@ -30,7 +30,7 @@ test("ensureWorkspace creates the required layout without overwriting state", ()
   assert.equal(workspaceExists(dir), false);
   const paths = ensureWorkspace(dir, "Test Research", "Initial abstract");
   assert.equal(workspaceExists(dir), true);
-  for (const p of [paths.config, paths.state, paths.goal, paths.plan, paths.backlog, paths.questions, paths.interesting, paths.modeGuide, paths.subagentsGuide, paths.sources, paths.evidence, paths.metrics, paths.commits, paths.events, paths.nextCycle]) {
+  for (const p of [paths.config, paths.state, paths.goal, paths.plan, paths.backlog, paths.questions, paths.leads, paths.modeGuide, paths.subagentsGuide, paths.sources, paths.findings, paths.metrics, paths.events, paths.nextCycle]) {
     assert.equal(fs.existsSync(p), true, p);
   }
   assert.match(fs.readFileSync(paths.goal, "utf-8"), /Initial abstract/);
@@ -89,26 +89,36 @@ test("ensureWorkspace creates mode-specific development and optimization guides"
 test("jsonl helpers append, count, and tail records", () => {
   const dir = tmpdir();
   const paths = ensureWorkspace(dir);
-  appendJsonl(paths.evidence, { type: "evidence", claim: "A" });
-  appendJsonl(paths.evidence, { type: "evidence", claim: "B" });
-  assert.equal(countJsonl(paths.evidence), 2);
-  assert.deepEqual(tailJsonl(paths.evidence, 1).map((x) => x.claim), ["B"]);
+  appendJsonl(paths.findings, { type: "finding", claim: "A" });
+  appendJsonl(paths.findings, { type: "finding", claim: "B" });
+  assert.equal(countJsonl(paths.findings), 2);
+  assert.deepEqual(tailJsonl(paths.findings, 1).map((x) => x.claim), ["B"]);
 });
 
 test("compaction summary is built from persisted workspace files", () => {
   const dir = tmpdir();
   const paths = ensureWorkspace(dir, "Compaction Test", "Baseline abstract");
   fs.writeFileSync(path.join(paths.cyclesDir, "cycle-001.md"), "# Cycle 1\n\nFinding X");
+  fs.appendFileSync(paths.leads, "\n- Lead A\n");
   appendJsonl(paths.sources, { type: "source", title: "Source A" });
-  appendJsonl(paths.evidence, { type: "evidence", claim: "Claim A" });
+  appendJsonl(paths.findings, { type: "finding", claim: "Claim A" });
   appendJsonl(paths.metrics, { type: "metric", name: "Latency", value: "10ms" });
-  appendJsonl(paths.commits, { type: "commit", sha: "abc123", summary: "Change" });
   const summary = buildAutogoalCompactionSummary(dir);
   assert.match(summary, /Autogoal Compaction Summary/);
   assert.match(summary, /Compaction Test/);
   assert.match(summary, /Finding X/);
   assert.match(summary, /Source A/);
   assert.match(summary, /Claim A/);
+  assert.match(summary, /Lead A/);
   assert.match(summary, /Latency/);
-  assert.match(summary, /abc123/);
+});
+
+test("compaction keeps reading legacy evidence and interesting files", () => {
+  const dir = tmpdir();
+  const paths = ensureWorkspace(dir, "Legacy Test", "Baseline abstract");
+  appendJsonl(paths.legacyEvidence, { type: "evidence", claim: "Legacy Claim" });
+  fs.writeFileSync(paths.legacyInteresting, "# Interesting\n\n- Legacy Lead\n");
+  const summary = buildAutogoalCompactionSummary(dir);
+  assert.match(summary, /Legacy Claim/);
+  assert.match(summary, /Legacy Lead/);
 });

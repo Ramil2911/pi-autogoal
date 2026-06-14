@@ -25,6 +25,17 @@ function jsonlSection(title: string, rows: Record<string, unknown>[]): string {
   return [`## ${title}`, "", ...rows.map((row) => `- ${JSON.stringify(row)}`)].join("\n");
 }
 
+function tailCombinedJsonl(primary: string, legacy: string, limit = 20): Record<string, unknown>[] {
+  const rows = [...tailJsonl(legacy, limit), ...tailJsonl(primary, limit)];
+  return rows.slice(-limit);
+}
+
+function combinedMarkdown(primary: string, legacy: string): string {
+  const primaryText = read(primary);
+  const legacyText = read(legacy);
+  return [primaryText, legacyText && `## Legacy\n\n${legacyText}`].filter(Boolean).join("\n\n");
+}
+
 export function buildAutogoalCompactionSummary(cwd: string): string {
   const p = autogoalPaths(cwd);
   const cycleSections = recentCycleFiles(p.cyclesDir).map((file) => {
@@ -40,12 +51,11 @@ export function buildAutogoalCompactionSummary(cwd: string): string {
     `## Mode Guide (${path.relative(cwd, p.modeGuide)})\n\n${read(p.modeGuide) || "No mode guide."}`,
     `## Plan (${path.relative(cwd, p.plan)})\n\n${read(p.plan) || "No plan file."}`,
     `## Backlog (${path.relative(cwd, p.backlog)})\n\n${read(p.backlog) || "No backlog."}`,
-    `## Interesting (${path.relative(cwd, p.interesting)})\n\n${read(p.interesting) || "No interesting observations yet."}`,
+    `## Leads (${path.relative(cwd, p.leads)})\n\n${combinedMarkdown(p.leads, p.legacyInteresting) || "No leads yet."}`,
     ...cycleSections,
-    jsonlSection("Recent Evidence", tailJsonl(p.evidence, 20)),
+    jsonlSection("Recent Findings", tailCombinedJsonl(p.findings, p.legacyEvidence, 20)),
     jsonlSection("Recent Sources", tailJsonl(p.sources, 20)),
     jsonlSection("Recent Metrics", tailJsonl(p.metrics, 20)),
-    jsonlSection("Recent Commits", tailJsonl(p.commits, 20)),
     "## Next Step",
     "Read `.autogoal/self-prompts/next-cycle.md` if present, then run the next focused Autogoal subcycle for the active mode and update the required state files.",
   ].filter(Boolean).join("\n\n");
