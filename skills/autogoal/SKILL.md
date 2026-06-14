@@ -36,9 +36,15 @@ Required layout:
   reports/
   self-prompts/next-cycle.md
   artifacts/
+  runs/<run-id>/
+    goal.md
+    plan.md
+    cycles/
+    artifacts/
 ```
 
 If files are missing, create them. Preserve existing user data; do not overwrite without incorporating it.
+Each `/autogoal start` has a run id in `.autogoal/state.json` and a durable namespace under `.autogoal/runs/<run-id>/`. Store run-specific artifacts there, especially in `runs/<run-id>/artifacts/`, so sibling or later runs do not overwrite them.
 
 ## Mode loops
 

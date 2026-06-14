@@ -58,9 +58,12 @@ Use `start` when you want to choose the mode and begin a specific goal loop:
 
 ```text
 /autogoal start [mode] <goal>
+/autogoal start --run <run-id> [mode] <goal>
 ```
 
 Modes: `research`, `dev`/`development`, `opt`/`optimize`/`optimization`.
+
+Every `start` creates a run namespace under `.autogoal/runs/<run-id>/`. If the requested run id already exists, Autogoal allocates a suffix such as `feature-2` instead of overwriting previous artifacts.
 
 ### Mode shortcuts
 
@@ -70,6 +73,7 @@ These are clearer aliases for `start [mode]`:
 /autogoal research <goal>
 /autogoal dev <goal>
 /autogoal optimize <metric/goal>
+/autogoal dev --run feature-a <goal>
 ```
 
 Examples:
@@ -117,7 +121,14 @@ Examples:
   reports/
   self-prompts/next-cycle.md
   artifacts/
+  runs/<run-id>/
+    goal.md
+    plan.md
+    cycles/
+    artifacts/
 ```
+
+The top-level files are the active workspace view for compatibility. Per-run files under `runs/<run-id>/` preserve artifacts from previous and sibling runs.
 
 The source of truth is on disk. A fresh pi session should be able to read `.autogoal/goal.md`, `.autogoal/mode.md`, `.autogoal/plan.md`, `.autogoal/state.json`, recent `.autogoal/cycles/*`, and continue.
 

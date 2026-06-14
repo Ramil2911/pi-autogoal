@@ -17,9 +17,12 @@ import {
   ensureWorkspace,
   inferTitle,
   autogoalPaths,
+  createRunId,
   readConfig,
   readState,
+  runAutogoalPaths,
   writeActiveGoalFiles,
+  ensureRunWorkspace,
   writeState,
   workspaceExists,
 } from "../extensions/autogoal/workspace.ts";
@@ -33,7 +36,7 @@ test("ensureWorkspace creates the required layout without overwriting state", ()
   assert.equal(workspaceExists(dir), false);
   const paths = ensureWorkspace(dir, "Test Research", "Initial abstract");
   assert.equal(workspaceExists(dir), true);
-  for (const p of [paths.config, paths.state, paths.goal, paths.plan, paths.backlog, paths.questions, paths.leads, paths.modeGuide, paths.subagentsGuide, paths.sources, paths.findings, paths.metrics, paths.events, paths.nextCycle]) {
+  for (const p of [paths.config, paths.state, paths.goal, paths.plan, paths.backlog, paths.questions, paths.leads, paths.modeGuide, paths.subagentsGuide, paths.sources, paths.findings, paths.metrics, paths.events, paths.nextCycle, paths.runsDir]) {
     assert.equal(fs.existsSync(p), true, p);
   }
   assert.match(fs.readFileSync(paths.goal, "utf-8"), /Initial abstract/);
@@ -80,6 +83,7 @@ test("composeStartMessage sends an explicit selected-mode first-cycle prompt", (
   assert.match(message, /first autonomous development cycle now/);
   assert.match(message, /Add search filters/);
   assert.match(message, /implement → test → review → commit/);
+  assert.match(composeStartMessage("Compare designs", "research", "research-a"), /\.autogoal\/runs\/research-a\/artifacts/);
 });
 
 test("ensureGenericWorkspace initializes folder scaffolding without a task goal", () => {
@@ -103,6 +107,17 @@ test("writeActiveGoalFiles refreshes stale init files when a new mode starts", (
   assert.match(fs.readFileSync(paths.modeGuide, "utf-8"), /Development Mode/);
   assert.match(fs.readFileSync(paths.plan, "utf-8"), /Development Plan/);
   assert.match(fs.readFileSync(paths.nextCycle, "utf-8"), /development loop/);
+});
+
+test("ensureRunWorkspace creates isolated run namespace and unique run ids", () => {
+  const dir = tmpdir();
+  const runId = createRunId(dir, "research", "Compare designs", "research-a");
+  assert.equal(runId, "research-a");
+  const run = ensureRunWorkspace(dir, runId, "Compare designs", "Compare designs", "research");
+  assert.equal(fs.existsSync(run.root), true);
+  assert.match(fs.readFileSync(run.goal, "utf-8"), /Compare designs/);
+  assert.equal(createRunId(dir, "research", "Compare designs", "research-a"), "research-a-2");
+  assert.equal(runAutogoalPaths(dir, runId).root, run.root);
 });
 
 test("ensureWorkspace creates mode-specific development and optimization guides", () => {

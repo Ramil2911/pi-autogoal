@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { tailJsonl } from "./jsonl.ts";
-import { autogoalPaths } from "./workspace.ts";
+import { autogoalPaths, readState, runAutogoalPaths } from "./workspace.ts";
 
 function read(file: string): string {
   try {
@@ -38,6 +38,8 @@ function combinedMarkdown(primary: string, legacy: string): string {
 
 export function buildAutogoalCompactionSummary(cwd: string): string {
   const p = autogoalPaths(cwd);
+  const state = readState(cwd);
+  const run = state.runId ? runAutogoalPaths(cwd, state.runId) : null;
   const cycleSections = recentCycleFiles(p.cyclesDir).map((file) => {
     const rel = path.relative(cwd, file);
     return `## Recent Cycle: ${rel}\n\n${read(file)}`;
@@ -47,6 +49,7 @@ export function buildAutogoalCompactionSummary(cwd: string): string {
     "",
     "Conversation history was compacted. The `.autogoal/` workspace files below are the source of truth. Continue from persisted state, not from memory.",
     "",
+    state.runId ? `## Active Run\n\nRun id: \`${state.runId}\`\nRun directory: \`${path.relative(cwd, run!.root)}\`` : "## Active Run\n\nNo active run id.",
     `## Goal (${path.relative(cwd, p.goal)})\n\n${read(p.goal) || "No goal file."}`,
     `## Mode Guide (${path.relative(cwd, p.modeGuide)})\n\n${read(p.modeGuide) || "No mode guide."}`,
     `## Plan (${path.relative(cwd, p.plan)})\n\n${read(p.plan) || "No plan file."}`,

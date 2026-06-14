@@ -9,8 +9,10 @@ import { assistantLimitExhaustionReason, containsTruncationMarker } from "./safe
 import {
   composeCycleMessage,
   composeStartMessage,
+  createRunId,
   defaultWorkspaceTitle,
   ensureGenericWorkspace,
+  ensureRunWorkspace,
   ensureWorkspace,
   inferTitle,
   modeTitle,
@@ -20,6 +22,7 @@ import {
   autogoalPaths,
   readConfig,
   readState,
+  runAutogoalPaths,
   workspaceExists,
   writeActiveGoalFiles,
   writeState,
@@ -63,6 +66,30 @@ function parseModePayload(args: string, fallback: AutogoalMode = "research"): { 
     return { mode: parsed, payload: rest.join(" ").trim() };
   }
   return { mode: fallback, payload: trimmed };
+}
+
+function parseRunOption(args: string): { runId?: string; payload: string } {
+  const tokens = args.trim().split(/\s+/).filter(Boolean);
+  const kept: string[] = [];
+  let runId: string | undefined;
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i];
+    if (token === "--run" || token === "--run-id") {
+      runId = tokens[i + 1];
+      i += 1;
+      continue;
+    }
+    if (token.startsWith("--run=")) {
+      runId = token.slice("--run=".length);
+      continue;
+    }
+    if (token.startsWith("--run-id=")) {
+      runId = token.slice("--run-id=".length);
+      continue;
+    }
+    kept.push(token);
+  }
+  return { runId, payload: kept.join(" ").trim() };
 }
 
 function sessionKey(ctx: ExtensionContext): string {
@@ -223,7 +250,38 @@ function statusText(ctx: ExtensionContext): string {
   const config = readConfig(ctx.cwd);
   const p = autogoalPaths(ctx.cwd);
   const modeExtra = state.mode === "optimization" ? ` · metrics ${countJsonl(p.metrics)}` : "";
-  return `Autogoal ${state.mode}/${state.status} · cycle ${state.cycleIndex}/${config.maxCycles} · auto ${state.autoTurnsSent}/${config.maxAutoTurns} · sources ${countJsonl(p.sources)} · findings ${countJsonl(p.findings)} · leads ${countMarkdownList(p.leads)}${modeExtra} · human=${state.requiresHuman}`;
+  const runExtra = state.runId ? ` · run=${state.runId}` : "";
+  return `Autogoal ${state.mode}/${state.status}${runExtra} · cycle ${state.cycleIndex}/${config.maxCycles} · auto ${state.autoTurnsSent}/${config.maxAutoTurns} · sources ${countJsonl(p.sources)} · findings ${countJsonl(p.findings)} · leads ${countMarkdownList(p.leads)}${modeExtra} · human=${state.requiresHuman}`;
+}
+
+function runPathsForState(cwd: string, state = readState(cwd)) {
+  return state.runId ? runAutogoalPaths(cwd, state.runId) : null;
+}
+
+function appendRunJsonl(cwd: string, file: "sources" | "findings" | "metrics" | "events", record: Record<string, unknown>, state = readState(cwd)): void {
+  const runPaths = runPathsForState(cwd, state);
+  if (runPaths) appendJsonl(runPaths[file], { runId: state.runId, ...record });
+}
+
+function appendRunLead(cwd: string, text: string, state = readState(cwd)): void {
+  const runPaths = runPathsForState(cwd, state);
+  if (runPaths) fs.appendFileSync(runPaths.leads, text);
+}
+
+function writeUniqueCycle(dir: string, preferredIndex: number, render: (index: number) => string): { index: number; file: string } {
+  fs.mkdirSync(dir, { recursive: true });
+  let index = Math.max(1, preferredIndex);
+  while (index < 100000) {
+    const file = path.join(dir, cycleFileName(index));
+    try {
+      fs.writeFileSync(file, render(index), { flag: "wx" });
+      return { index, file };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      index += 1;
+    }
+  }
+  throw new Error("Unable to allocate a unique Autogoal cycle file");
 }
 
 function setAutogoalStatus(ctx: ExtensionContext): void {
@@ -375,6 +433,7 @@ export default function autogoalExtension(pi: ExtensionAPI) {
     const state = readState(ctx.cwd);
     if (state.status !== "running" && state.status !== "paused") return;
     const paths = autogoalPaths(ctx.cwd);
+    const runPaths = runPathsForState(ctx.cwd, state);
     const config = readConfig(ctx.cwd);
     const mode = state.mode;
     const extra = [
@@ -382,6 +441,7 @@ export default function autogoalExtension(pi: ExtensionAPI) {
       `## Autogoal ${modeTitle(mode)} Mode`,
       `Workspace state lives in \`${AUTOGOAL_DIR}/\`. Treat these files as the source of truth, not the chat history.`,
       `Read/update: \`${paths.goal}\`, \`${paths.plan}\`, \`${paths.backlog}\`, \`${paths.modeGuide}\`, \`${paths.subagentsGuide}\`, and \`${paths.nextCycle}\`.`,
+      runPaths ? `Active run id is \`${state.runId}\`; preserve run-specific artifacts under \`${runPaths.root}\`, especially \`${runPaths.artifactsDir}\`. Do not overwrite artifacts from sibling runs.` : "No active run id is set yet; start a goal to create one under `.autogoal/runs/`.",
       "Use Autogoal tools when available: log_source, log_finding, log_lead, log_metric, prepare_worktree, log_goal_cycle, set_goal_state. Legacy aliases log_evidence/log_interesting may exist for old workspaces.",
       mode === "development"
         ? "Development durability rule: normal progress should be durable through git commits, not long-lived reports/artifacts. Run relevant tests before committing."
@@ -413,7 +473,9 @@ export default function autogoalExtension(pi: ExtensionAPI) {
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const state = readState(ctx.cwd);
       ensureWorkspace(ctx.cwd, state.title ?? "Untitled goal", "", state.mode);
-      appendJsonl(autogoalPaths(ctx.cwd).sources, { type: "source", ...params });
+      const record = { type: "source", runId: state.runId, ...params };
+      appendJsonl(autogoalPaths(ctx.cwd).sources, record);
+      appendRunJsonl(ctx.cwd, "sources", record, state);
       return { content: [{ type: "text", text: `✅ Source logged: ${params.title}` }], details: { params } };
     },
   });
@@ -432,7 +494,9 @@ export default function autogoalExtension(pi: ExtensionAPI) {
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const state = readState(ctx.cwd);
       ensureWorkspace(ctx.cwd, state.title ?? "Untitled goal", "", state.mode);
-      appendJsonl(autogoalPaths(ctx.cwd).findings, { type: "finding", ...params });
+      const record = { type: "finding", runId: state.runId, ...params };
+      appendJsonl(autogoalPaths(ctx.cwd).findings, record);
+      appendRunJsonl(ctx.cwd, "findings", record, state);
       return { content: [{ type: "text", text: `✅ Finding logged: ${String(params.claim).slice(0, 120)}` }], details: { params } };
     },
   });
@@ -451,7 +515,9 @@ export default function autogoalExtension(pi: ExtensionAPI) {
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const state = readState(ctx.cwd);
       ensureWorkspace(ctx.cwd, state.title ?? "Untitled goal", "", state.mode);
-      appendJsonl(autogoalPaths(ctx.cwd).findings, { type: "finding", legacyTool: "log_evidence", sources: params.source, ...params });
+      const record = { type: "finding", legacyTool: "log_evidence", runId: state.runId, sources: params.source, ...params };
+      appendJsonl(autogoalPaths(ctx.cwd).findings, record);
+      appendRunJsonl(ctx.cwd, "findings", record, state);
       return { content: [{ type: "text", text: `✅ Finding logged via legacy log_evidence: ${String(params.claim).slice(0, 120)}` }], details: { params } };
     },
   });
@@ -469,8 +535,11 @@ export default function autogoalExtension(pi: ExtensionAPI) {
       const state = readState(ctx.cwd);
       ensureWorkspace(ctx.cwd, state.title ?? "Untitled goal", "", state.mode);
       const p = autogoalPaths(ctx.cwd);
-      fs.appendFileSync(p.leads, `\n- **${new Date().toISOString()}** ${params.lead}${params.why ? ` — ${params.why}` : ""}${params.followup ? ` (follow-up: ${params.followup})` : ""}\n`);
-      appendEvent(p.events, "lead", params as Record<string, unknown>);
+      const text = `\n- **${new Date().toISOString()}** ${params.lead}${params.why ? ` — ${params.why}` : ""}${params.followup ? ` (follow-up: ${params.followup})` : ""}\n`;
+      fs.appendFileSync(p.leads, text);
+      appendRunLead(ctx.cwd, text, state);
+      appendEvent(p.events, "lead", { runId: state.runId, ...params } as Record<string, unknown>);
+      appendRunJsonl(ctx.cwd, "events", { type: "lead", ...params }, state);
       return { content: [{ type: "text", text: "✅ Lead recorded" }], details: { params } };
     },
   });
@@ -488,8 +557,11 @@ export default function autogoalExtension(pi: ExtensionAPI) {
       const state = readState(ctx.cwd);
       ensureWorkspace(ctx.cwd, state.title ?? "Untitled goal", "", state.mode);
       const p = autogoalPaths(ctx.cwd);
-      fs.appendFileSync(p.leads, `\n- **${new Date().toISOString()}** ${params.observation}${params.why ? ` — ${params.why}` : ""}${params.followup ? ` (follow-up: ${params.followup})` : ""}\n`);
-      appendEvent(p.events, "lead", { legacyTool: "log_interesting", ...params } as Record<string, unknown>);
+      const text = `\n- **${new Date().toISOString()}** ${params.observation}${params.why ? ` — ${params.why}` : ""}${params.followup ? ` (follow-up: ${params.followup})` : ""}\n`;
+      fs.appendFileSync(p.leads, text);
+      appendRunLead(ctx.cwd, text, state);
+      appendEvent(p.events, "lead", { legacyTool: "log_interesting", runId: state.runId, ...params } as Record<string, unknown>);
+      appendRunJsonl(ctx.cwd, "events", { type: "lead", legacyTool: "log_interesting", ...params }, state);
       return { content: [{ type: "text", text: "✅ Lead recorded via legacy log_interesting" }], details: { params } };
     },
   });
@@ -509,8 +581,11 @@ export default function autogoalExtension(pi: ExtensionAPI) {
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const state = readState(ctx.cwd);
       ensureWorkspace(ctx.cwd, state.title ?? "Untitled goal", "", state.mode);
-      appendJsonl(autogoalPaths(ctx.cwd).metrics, { type: "metric", mode: state.mode, ...params });
-      appendEvent(autogoalPaths(ctx.cwd).events, "metric", params as Record<string, unknown>);
+      const record = { type: "metric", runId: state.runId, mode: state.mode, ...params };
+      appendJsonl(autogoalPaths(ctx.cwd).metrics, record);
+      appendRunJsonl(ctx.cwd, "metrics", record, state);
+      appendEvent(autogoalPaths(ctx.cwd).events, "metric", { runId: state.runId, ...params } as Record<string, unknown>);
+      appendRunJsonl(ctx.cwd, "events", { type: "metric", ...params }, state);
       return { content: [{ type: "text", text: `✅ Metric logged: ${params.name}=${params.value}` }], details: { params } };
     },
   });
@@ -554,6 +629,7 @@ export default function autogoalExtension(pi: ExtensionAPI) {
       repository: stringProp("Repository path or URL"),
       branch: stringProp("Current branch"),
       worktreePath: stringProp("Current worktree path"),
+      runId: stringProp("Current run id under .autogoal/runs/"),
       cycleIndex: numberProp("Current cycle index"),
     }),
     async execute(_id, params, _signal, _onUpdate, ctx) {
@@ -561,7 +637,7 @@ export default function autogoalExtension(pi: ExtensionAPI) {
       const mode = normalizeMode(params.mode, prev.mode);
       ensureWorkspace(ctx.cwd, prev.title ?? "Untitled goal", "", mode);
       const patch: Record<string, unknown> = {};
-      for (const key of ["status", "mode", "auto", "requiresHuman", "title", "metric", "repository", "branch", "worktreePath", "cycleIndex"] as const) {
+      for (const key of ["status", "mode", "auto", "requiresHuman", "title", "metric", "repository", "branch", "worktreePath", "runId", "cycleIndex"] as const) {
         if (params[key] !== undefined) patch[key] = params[key];
       }
       if (typeof patch.mode === "string") patch.mode = normalizeMode(patch.mode, prev.mode);
@@ -601,15 +677,21 @@ export default function autogoalExtension(pi: ExtensionAPI) {
       const prev = readState(ctx.cwd);
       ensureWorkspace(ctx.cwd, prev.title ?? "Untitled goal", "", prev.mode);
       const p = autogoalPaths(ctx.cwd);
-      const nextIndex = prev.cycleIndex + 1;
       const nextPrompt = readNextPromptInput(ctx.cwd, params as Record<string, unknown>);
       if (!nextPrompt.ok) {
         return { content: [{ type: "text", text: `❌ ${nextPrompt.error}` }], details: {} };
       }
       const cycleParams = { ...params, nextPrompt: nextPrompt.text, nextPromptFile: nextPrompt.file } as Record<string, unknown>;
-      fs.writeFileSync(path.join(p.cyclesDir, cycleFileName(nextIndex)), markdownCycle(cycleParams, nextIndex));
+      const rootCycle = writeUniqueCycle(p.cyclesDir, prev.cycleIndex + 1, (index) => markdownCycle(cycleParams, index));
+      const nextIndex = rootCycle.index;
+      const runPaths = runPathsForState(ctx.cwd, prev);
+      if (runPaths) {
+        const runCycle = writeUniqueCycle(runPaths.cyclesDir, nextIndex, (index) => markdownCycle(cycleParams, index));
+        fs.writeFileSync(runPaths.nextCycle, nextPrompt.text + "\n");
+        appendRunJsonl(ctx.cwd, "events", { type: "cycle", cycleIndex: runCycle.index, mode: prev.mode, title: params.title, progress: params.progress !== false }, prev);
+      }
       fs.writeFileSync(p.nextCycle, nextPrompt.text + "\n");
-      appendEvent(p.events, "cycle", { cycleIndex: nextIndex, mode: prev.mode, title: params.title, progress: params.progress !== false });
+      appendEvent(p.events, "cycle", { runId: prev.runId, cycleIndex: nextIndex, mode: prev.mode, title: params.title, progress: params.progress !== false });
       const config = readConfig(ctx.cwd);
       const requiresHuman = params.requiresHuman === true;
       const limitReached = nextIndex >= config.maxCycles;
@@ -641,7 +723,7 @@ export default function autogoalExtension(pi: ExtensionAPI) {
       const command = commandRaw.toLowerCase();
       const payload = rest.join(" ").trim();
 
-      const startMode = async (mode: AutogoalMode, goal: string): Promise<void> => {
+      const startMode = async (mode: AutogoalMode, goal: string, requestedRunId?: string): Promise<void> => {
         const trimmedGoal = goal.trim();
         if (!trimmedGoal) {
           ctx.ui.notify(`Provide a goal, for example: /autogoal start ${mode} <goal>`, "warning");
@@ -649,12 +731,15 @@ export default function autogoalExtension(pi: ExtensionAPI) {
         }
         const title = inferTitle(trimmedGoal);
         const metric = mode === "optimization" ? trimmedGoal : "";
+        const runId = createRunId(ctx.cwd, mode, title, requestedRunId);
         ensureWorkspace(ctx.cwd, title, trimmedGoal, mode, metric);
         writeActiveGoalFiles(ctx.cwd, title, trimmedGoal, mode, metric);
+        ensureRunWorkspace(ctx.cwd, runId, title, trimmedGoal, mode, metric);
         writeState(ctx.cwd, {
           mode,
           title,
           metric: mode === "optimization" ? trimmedGoal : readState(ctx.cwd).metric,
+          runId,
           repository: ctx.cwd,
           branch: currentBranch(ctx.cwd),
           status: "running",
@@ -664,11 +749,12 @@ export default function autogoalExtension(pi: ExtensionAPI) {
           lastPromptAt: new Date().toISOString(),
         });
         setAutogoalTools(ctx, true);
-        appendEvent(autogoalPaths(ctx.cwd).events, "start", { mode, title });
-        ctx.ui.notify(`Autogoal ${mode} mode running in ${AUTOGOAL_DIR}/`, "info");
+        appendEvent(autogoalPaths(ctx.cwd).events, "start", { mode, title, runId });
+        appendRunJsonl(ctx.cwd, "events", { type: "start", mode, title }, readState(ctx.cwd));
+        ctx.ui.notify(`Autogoal ${mode} mode running in ${AUTOGOAL_DIR}/ (run ${runId})`, "info");
         await fireBeforeHook(ctx, `start-${mode}`);
         markCyclePromptSent(ctx);
-        sendWhenReady(pi, ctx, composeStartMessage(trimmedGoal, mode));
+        sendWhenReady(pi, ctx, composeStartMessage(trimmedGoal, mode, runId));
       };
 
       if (command === "init") {
@@ -682,23 +768,27 @@ export default function autogoalExtension(pi: ExtensionAPI) {
       }
 
       if (command === "start") {
-        const parsed = parseModePayload(payload, "research");
-        await startMode(parsed.mode, parsed.payload);
+        const runParsed = parseRunOption(payload);
+        const parsed = parseModePayload(runParsed.payload, "research");
+        await startMode(parsed.mode, parsed.payload, runParsed.runId);
         return;
       }
 
       if (["research", "res"].includes(command)) {
-        await startMode("research", payload);
+        const runParsed = parseRunOption(payload);
+        await startMode("research", runParsed.payload, runParsed.runId);
         return;
       }
 
       if (["dev", "development", "code"].includes(command)) {
-        await startMode("development", payload);
+        const runParsed = parseRunOption(payload);
+        await startMode("development", runParsed.payload, runParsed.runId);
         return;
       }
 
       if (["opt", "optimize", "optimization"].includes(command)) {
-        await startMode("optimization", payload);
+        const runParsed = parseRunOption(payload);
+        await startMode("optimization", runParsed.payload, runParsed.runId);
         return;
       }
 

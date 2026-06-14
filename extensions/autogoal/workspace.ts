@@ -44,6 +44,7 @@ export interface AutogoalState {
   repository: string | null;
   branch: string | null;
   worktreePath: string | null;
+  runId: string | null;
   cycleIndex: number;
   autoTurnsSent: number;
   requiresHuman: boolean;
@@ -73,6 +74,7 @@ export interface AutogoalPaths {
   selfPromptsDir: string;
   nextCycle: string;
   artifactsDir: string;
+  runsDir: string;
 }
 
 export const DEFAULT_CONFIG: AutogoalConfig = {
@@ -126,6 +128,7 @@ export function defaultState(title: string | null = null, mode: AutogoalMode = "
     repository: null,
     branch: null,
     worktreePath: null,
+    runId: null,
     cycleIndex: 0,
     autoTurnsSent: 0,
     requiresHuman: false,
@@ -134,8 +137,7 @@ export function defaultState(title: string | null = null, mode: AutogoalMode = "
   };
 }
 
-export function autogoalPaths(cwd: string): AutogoalPaths {
-  const root = path.join(cwd, AUTOGOAL_DIR);
+function autogoalPathsFromRoot(root: string): AutogoalPaths {
   const selfPromptsDir = path.join(root, "self-prompts");
   return {
     root,
@@ -159,7 +161,16 @@ export function autogoalPaths(cwd: string): AutogoalPaths {
     selfPromptsDir,
     nextCycle: path.join(selfPromptsDir, "next-cycle.md"),
     artifactsDir: path.join(root, "artifacts"),
+    runsDir: path.join(root, "runs"),
   };
+}
+
+export function autogoalPaths(cwd: string): AutogoalPaths {
+  return autogoalPathsFromRoot(path.join(cwd, AUTOGOAL_DIR));
+}
+
+export function runAutogoalPaths(cwd: string, runId: string): AutogoalPaths {
+  return autogoalPathsFromRoot(path.join(autogoalPaths(cwd).runsDir, sanitizeRunId(runId)));
 }
 
 export function workspaceExists(cwd: string): boolean {
@@ -244,6 +255,7 @@ export function readState(cwd: string): AutogoalState {
     repository: typeof raw?.repository === "string" ? raw.repository : null,
     branch: typeof raw?.branch === "string" ? raw.branch : null,
     worktreePath: typeof raw?.worktreePath === "string" ? raw.worktreePath : null,
+    runId: typeof raw?.runId === "string" ? sanitizeRunId(raw.runId) : null,
     cycleIndex: typeof raw?.cycleIndex === "number" ? raw.cycleIndex : base.cycleIndex,
     autoTurnsSent: typeof raw?.autoTurnsSent === "number" ? raw.autoTurnsSent : base.autoTurnsSent,
     requiresHuman: typeof raw?.requiresHuman === "boolean" ? raw.requiresHuman : base.requiresHuman,
@@ -256,7 +268,13 @@ export function writeState(cwd: string, patch: Partial<AutogoalState>): Autogoal
   const paths = autogoalPaths(cwd);
   ensureDir(paths.root);
   const state = { ...readState(cwd), ...patch, updatedAt: new Date().toISOString() };
+  if (state.runId) state.runId = sanitizeRunId(state.runId);
   fs.writeFileSync(paths.state, JSON.stringify(state, null, 2) + "\n");
+  if (state.runId) {
+    const runPaths = runAutogoalPaths(cwd, state.runId);
+    ensureWorkspaceDirs(runPaths, false);
+    fs.writeFileSync(runPaths.state, JSON.stringify(state, null, 2) + "\n");
+  }
   return state;
 }
 
@@ -324,12 +342,34 @@ function genericWorkspaceFiles(paths: AutogoalPaths, title: string): Array<[stri
   ];
 }
 
-function ensureWorkspaceDirs(paths: AutogoalPaths): void {
+function ensureWorkspaceDirs(paths: AutogoalPaths, includeRuns = true): void {
   ensureDir(paths.root);
   ensureDir(paths.cyclesDir);
   ensureDir(paths.reportsDir);
   ensureDir(paths.selfPromptsDir);
   ensureDir(paths.artifactsDir);
+  if (includeRuns) ensureDir(paths.runsDir);
+}
+
+export function sanitizeRunId(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "run";
+}
+
+export function createRunId(cwd: string, mode: AutogoalMode, title: string, requested?: string): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const base = sanitizeRunId(requested || `${stamp}-${mode}-${inferTitle(title).slice(0, 36)}`);
+  let candidate = base;
+  let suffix = 2;
+  while (fs.existsSync(runAutogoalPaths(cwd, candidate).root)) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
 }
 
 export function defaultWorkspaceTitle(cwd: string): string {
@@ -354,6 +394,21 @@ export function writeActiveGoalFiles(cwd: string, title: string, abstract: strin
   const paths = autogoalPaths(cwd);
   ensureWorkspaceDirs(paths);
   writeFiles(activeGoalFiles(paths, title, abstract, mode, metric), "overwrite");
+  return paths;
+}
+
+export function ensureRunWorkspace(cwd: string, runId: string, title: string, abstract: string, mode: AutogoalMode, metric = ""): AutogoalPaths {
+  const paths = runAutogoalPaths(cwd, runId);
+  ensureWorkspaceDirs(paths, false);
+  writeIfMissing(paths.config, JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n");
+  writeFiles(activeGoalFiles(paths, title, abstract, mode, metric), "missing");
+  writeIfMissing(paths.questions, "# Open Questions\n\n");
+  writeIfMissing(paths.leads, "# Leads\n\nCapture promising but unverified follow-up ideas, anomalies, weak signals, and side hypotheses here.\n");
+  writeIfMissing(paths.sources, "");
+  writeIfMissing(paths.findings, "");
+  writeIfMissing(paths.metrics, "");
+  writeIfMissing(paths.events, "");
+  writeIfMissing(paths.state, JSON.stringify({ ...defaultState(title, mode), metric: metric || null, runId }, null, 2) + "\n");
   return paths;
 }
 
@@ -494,7 +549,7 @@ export function defaultNextCyclePrompt(mode: AutogoalMode = "research"): string 
   ].join("\n");
 }
 
-export function composeStartMessage(abstract: string, mode: AutogoalMode = "research"): string {
+export function composeStartMessage(abstract: string, mode: AutogoalMode = "research", runId?: string): string {
   const goal = abstract.trim();
   const modeAction = mode === "development"
     ? "implement → test → review → commit"
@@ -505,6 +560,7 @@ export function composeStartMessage(abstract: string, mode: AutogoalMode = "rese
     `Autogoal start: begin the first autonomous ${mode} cycle now.`,
     "",
     "Use the `autogoal` skill and treat `.autogoal/` in the current folder as the source of truth.",
+    runId ? `Active run id: ${runId}. Preserve run-specific artifacts under \`.autogoal/runs/${runId}/\` (especially \`.autogoal/runs/${runId}/artifacts/\`).` : "",
     "",
     "Goal:",
     goal,
