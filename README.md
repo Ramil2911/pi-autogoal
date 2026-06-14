@@ -2,8 +2,6 @@
 
 Autonomous long-horizon research workflow for [pi](https://pi.dev/).
 
-`pi-autoscope` is intentionally **not** named `autoresearch`: it is for exploratory/scientific/product research where the goal evolves, evidence accumulates, and the agent keeps a living plan instead of optimizing one numeric metric.
-
 ## What it provides
 
 - `/autoscope` command implemented as a pi extension.
