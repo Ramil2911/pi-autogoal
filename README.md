@@ -46,15 +46,15 @@ Then restart pi or run `/reload`.
 
 ## Commands
 
-### Create or start a goal
+### Initialize or start a goal
 
-Use `init` when you only want to create `.autogoal/` state without starting autonomous self-resume:
+Use `init` when you only want to create the generic `.autogoal/` workspace scaffolding for the current folder without choosing a goal or starting autonomous self-resume:
 
 ```text
-/autogoal init [mode] [title]
+/autogoal init [workspace-title]
 ```
 
-Use `start` when you want to choose the mode explicitly in one command:
+Use `start` when you want to choose the mode and begin a specific goal loop:
 
 ```text
 /autogoal start [mode] <goal>

@@ -9,6 +9,8 @@ import { assistantLimitExhaustionReason, containsTruncationMarker } from "./safe
 import {
   composeCycleMessage,
   composeStartMessage,
+  defaultWorkspaceTitle,
+  ensureGenericWorkspace,
   ensureWorkspace,
   inferTitle,
   modeTitle,
@@ -19,6 +21,7 @@ import {
   readConfig,
   readState,
   workspaceExists,
+  writeActiveGoalFiles,
   writeState,
 } from "./workspace.ts";
 
@@ -41,7 +44,7 @@ const numberProp = (description: string) => ({ type: "number", description });
 function help(): string {
   return [
     "Autogoal commands:",
-    "  create only:  /autogoal init [mode] [title]",
+    "  initialize:   /autogoal init [workspace-title]",
     "  start loop:   /autogoal start [mode] <goal>",
     "  research:     /autogoal research <goal>",
     "  development:  /autogoal dev <goal>",
@@ -639,12 +642,19 @@ export default function autogoalExtension(pi: ExtensionAPI) {
       const payload = rest.join(" ").trim();
 
       const startMode = async (mode: AutogoalMode, goal: string): Promise<void> => {
-        const title = inferTitle(goal || `Untitled ${mode} goal`);
-        ensureWorkspace(ctx.cwd, title, goal, mode, mode === "optimization" ? goal : "");
+        const trimmedGoal = goal.trim();
+        if (!trimmedGoal) {
+          ctx.ui.notify(`Provide a goal, for example: /autogoal start ${mode} <goal>`, "warning");
+          return;
+        }
+        const title = inferTitle(trimmedGoal);
+        const metric = mode === "optimization" ? trimmedGoal : "";
+        ensureWorkspace(ctx.cwd, title, trimmedGoal, mode, metric);
+        writeActiveGoalFiles(ctx.cwd, title, trimmedGoal, mode, metric);
         writeState(ctx.cwd, {
           mode,
           title,
-          metric: mode === "optimization" ? goal || null : readState(ctx.cwd).metric,
+          metric: mode === "optimization" ? trimmedGoal : readState(ctx.cwd).metric,
           repository: ctx.cwd,
           branch: currentBranch(ctx.cwd),
           status: "running",
@@ -658,17 +668,16 @@ export default function autogoalExtension(pi: ExtensionAPI) {
         ctx.ui.notify(`Autogoal ${mode} mode running in ${AUTOGOAL_DIR}/`, "info");
         await fireBeforeHook(ctx, `start-${mode}`);
         markCyclePromptSent(ctx);
-        sendWhenReady(pi, ctx, composeStartMessage(goal, mode));
+        sendWhenReady(pi, ctx, composeStartMessage(trimmedGoal, mode));
       };
 
       if (command === "init") {
-        const parsed = parseModePayload(payload, "research");
-        const title = parsed.payload || `Untitled ${parsed.mode} goal`;
-        ensureWorkspace(ctx.cwd, title, "", parsed.mode);
-        writeState(ctx.cwd, { mode: parsed.mode, title, repository: ctx.cwd, branch: currentBranch(ctx.cwd), status: "idle", auto: false, requiresHuman: false });
+        const title = payload || defaultWorkspaceTitle(ctx.cwd);
+        ensureGenericWorkspace(ctx.cwd, title);
+        writeState(ctx.cwd, { title, repository: ctx.cwd, branch: currentBranch(ctx.cwd), status: "idle", auto: false, requiresHuman: false });
         setAutogoalTools(ctx, true);
-        appendEvent(autogoalPaths(ctx.cwd).events, "init", { mode: parsed.mode, title });
-        ctx.ui.notify(`Autogoal ${parsed.mode} workspace initialized in ${AUTOGOAL_DIR}/`, "info");
+        appendEvent(autogoalPaths(ctx.cwd).events, "init", { title });
+        ctx.ui.notify(`Autogoal workspace initialized in ${AUTOGOAL_DIR}/. Start a goal with /autogoal start [research|dev|optimize] <goal>.`, "info");
         return;
       }
 
@@ -694,6 +703,10 @@ export default function autogoalExtension(pi: ExtensionAPI) {
       }
 
       if (command === "cycle") {
+        if (!workspaceExists(ctx.cwd)) {
+          ctx.ui.notify("No .autogoal workspace in this directory. Run /autogoal init or /autogoal start [mode] <goal> first.", "warning");
+          return;
+        }
         const prev = readState(ctx.cwd);
         ensureWorkspace(ctx.cwd, payload || prev.title || "Untitled goal", "", prev.mode);
         writeState(ctx.cwd, { status: "running", auto: false, requiresHuman: false, repository: ctx.cwd, branch: currentBranch(ctx.cwd) });
@@ -705,6 +718,10 @@ export default function autogoalExtension(pi: ExtensionAPI) {
       }
 
       if (command === "pause") {
+        if (!workspaceExists(ctx.cwd)) {
+          ctx.ui.notify("No .autogoal workspace in this directory", "warning");
+          return;
+        }
         clearTimer(ctx);
         writeState(ctx.cwd, { status: "paused", auto: false });
         setAutogoalTools(ctx, true);
@@ -713,6 +730,10 @@ export default function autogoalExtension(pi: ExtensionAPI) {
       }
 
       if (command === "resume") {
+        if (!workspaceExists(ctx.cwd)) {
+          ctx.ui.notify("No .autogoal workspace in this directory. Run /autogoal start [mode] <goal> first.", "warning");
+          return;
+        }
         const prev = readState(ctx.cwd);
         ensureWorkspace(ctx.cwd, payload || prev.title || "Untitled goal", "", prev.mode);
         writeState(ctx.cwd, { status: "running", auto: true, requiresHuman: false });

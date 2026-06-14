@@ -11,12 +11,15 @@ import {
 } from "../extensions/autogoal/jsonl.ts";
 import { buildAutogoalCompactionSummary } from "../extensions/autogoal/compaction.ts";
 import {
+  composeStartMessage,
   composeCycleMessage,
+  ensureGenericWorkspace,
   ensureWorkspace,
   inferTitle,
   autogoalPaths,
   readConfig,
   readState,
+  writeActiveGoalFiles,
   writeState,
   workspaceExists,
 } from "../extensions/autogoal/workspace.ts";
@@ -69,6 +72,37 @@ test("inferTitle and composeCycleMessage are stable", () => {
   assert.match(composeCycleMessage("test", "development"), /Autogoal test/);
   assert.match(composeCycleMessage("test", "development"), /development cycle/);
   assert.match(composeCycleMessage("test"), /\.autogoal\//);
+});
+
+test("composeStartMessage sends an explicit selected-mode first-cycle prompt", () => {
+  const message = composeStartMessage("Add search filters", "development");
+  assert.doesNotMatch(message, /^\/skill:/);
+  assert.match(message, /first autonomous development cycle now/);
+  assert.match(message, /Add search filters/);
+  assert.match(message, /implement → test → review → commit/);
+});
+
+test("ensureGenericWorkspace initializes folder scaffolding without a task goal", () => {
+  const dir = tmpdir();
+  const paths = ensureGenericWorkspace(dir);
+  const goal = fs.readFileSync(paths.goal, "utf-8");
+  assert.match(goal, /No active Autogoal goal/);
+  assert.match(goal, /\/autogoal start/);
+  assert.doesNotMatch(goal, /# Goal:/);
+  const state = readState(dir);
+  assert.equal(state.status, "idle");
+  assert.equal(state.auto, false);
+  assert.match(state.title, /Autogoal workspace:/);
+});
+
+test("writeActiveGoalFiles refreshes stale init files when a new mode starts", () => {
+  const dir = tmpdir();
+  const paths = ensureGenericWorkspace(dir);
+  writeActiveGoalFiles(dir, "Build feature", "Implement feature", "development");
+  assert.match(fs.readFileSync(paths.goal, "utf-8"), /Implement feature/);
+  assert.match(fs.readFileSync(paths.modeGuide, "utf-8"), /Development Mode/);
+  assert.match(fs.readFileSync(paths.plan, "utf-8"), /Development Plan/);
+  assert.match(fs.readFileSync(paths.nextCycle, "utf-8"), /development loop/);
 });
 
 test("ensureWorkspace creates mode-specific development and optimization guides", () => {

@@ -174,6 +174,13 @@ function writeIfMissing(file: string, content: string): void {
   if (!fs.existsSync(file)) fs.writeFileSync(file, content);
 }
 
+function writeFiles(files: Array<[string, string]>, mode: "missing" | "overwrite"): void {
+  for (const [file, content] of files) {
+    if (mode === "overwrite") fs.writeFileSync(file, content);
+    else writeIfMissing(file, content);
+  }
+}
+
 function readJsonObject(file: string): Record<string, unknown> | null {
   if (!fs.existsSync(file)) return null;
   try {
@@ -253,58 +260,116 @@ export function writeState(cwd: string, patch: Partial<AutogoalState>): Autogoal
   return state;
 }
 
-export function ensureWorkspace(cwd: string, title = "Untitled goal", abstract = "", mode: AutogoalMode = "research", metric = ""): AutogoalPaths {
-  const paths = autogoalPaths(cwd);
+function activeGoalFiles(paths: AutogoalPaths, title: string, abstract: string, mode: AutogoalMode, metric = ""): Array<[string, string]> {
+  return [
+    [paths.goal, [
+      `# Goal: ${title}`,
+      "",
+      `Mode: ${modeTitle(mode)}`,
+      "",
+      "## Baseline abstract",
+      abstract.trim() || "_Not provided yet._",
+      "",
+      "## Evolving goal",
+      mode === "development"
+        ? "Deliver working code in verified, reviewable git commits. Keep durable output in git history rather than ad-hoc artifacts."
+        : mode === "optimization"
+          ? "Improve the target metric through findings-backed experiments. Preserve the baseline abstract above."
+          : "Refine this section as findings accumulate. Preserve the baseline abstract above.",
+      ...(mode === "optimization" ? ["", "## Target metric", metric.trim() || "Define the metric, baseline, measurement command, and target delta."] : []),
+      "",
+      "## Decision log",
+      "- Active goal started.",
+      "",
+    ].join("\n")],
+    [paths.plan, [
+      `# ${modeTitle(mode)} Plan`,
+      "",
+      "Keep this file current after every cycle.",
+      "",
+      "## Current high-level cycle",
+      ...defaultPlanSteps(mode),
+      "",
+      "## Active plan",
+      defaultPlanItem(mode),
+      "",
+    ].join("\n")],
+    [paths.backlog, `# Backlog\n\n- [ ] Decompose the next ${mode} subcycle.\n`],
+    [paths.modeGuide, defaultModeGuide(mode)],
+    [paths.subagentsGuide, defaultSubagentsGuide(mode)],
+    [paths.nextCycle, defaultNextCyclePrompt(mode)],
+  ];
+}
+
+function genericWorkspaceFiles(paths: AutogoalPaths, title: string): Array<[string, string]> {
+  return [
+    [paths.goal, [
+      `# ${title}`,
+      "",
+      "No active Autogoal goal has been started in this folder yet.",
+      "",
+      "Start one with `/autogoal start [research|dev|optimize] <goal>`.",
+      "",
+      "## Notes",
+      "- Workspace initialized.",
+      "",
+    ].join("\n")],
+    [paths.plan, "# Autogoal Plan\n\nNo active plan yet. Start a goal to create a mode-specific plan.\n"],
+    [paths.backlog, "# Backlog\n\nNo active backlog yet. Start a goal to seed mode-specific work.\n"],
+    [paths.questions, "# Open Questions\n\n"],
+    [paths.leads, "# Leads\n\nCapture promising but unverified follow-up ideas, anomalies, weak signals, and side hypotheses here.\n"],
+    [paths.modeGuide, "# Autogoal Mode\n\nNo active mode yet. Choose one with `/autogoal start research|dev|optimize <goal>`.\n"],
+    [paths.subagentsGuide, defaultSubagentsGuide("research")],
+    [paths.nextCycle, "No Autogoal goal is running. Start one with `/autogoal start [research|dev|optimize] <goal>`.\n"],
+  ];
+}
+
+function ensureWorkspaceDirs(paths: AutogoalPaths): void {
   ensureDir(paths.root);
   ensureDir(paths.cyclesDir);
   ensureDir(paths.reportsDir);
   ensureDir(paths.selfPromptsDir);
   ensureDir(paths.artifactsDir);
+}
 
+export function defaultWorkspaceTitle(cwd: string): string {
+  const folder = path.basename(path.resolve(cwd)) || "current folder";
+  return `Autogoal workspace: ${folder}`;
+}
+
+export function ensureGenericWorkspace(cwd: string, title = defaultWorkspaceTitle(cwd)): AutogoalPaths {
+  const paths = autogoalPaths(cwd);
+  ensureWorkspaceDirs(paths);
   writeIfMissing(paths.config, JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n");
-  writeIfMissing(paths.state, JSON.stringify({ ...defaultState(title, mode), metric: metric || null }, null, 2) + "\n");
-  writeIfMissing(paths.goal, [
-    `# Goal: ${title}`,
-    "",
-    `Mode: ${modeTitle(mode)}`,
-    "",
-    "## Baseline abstract",
-    abstract.trim() || "_Not provided yet._",
-    "",
-    "## Evolving goal",
-    mode === "development"
-      ? "Deliver working code in verified, reviewable git commits. Keep durable output in git history rather than ad-hoc artifacts."
-      : mode === "optimization"
-        ? "Improve the target metric through findings-backed experiments. Preserve the baseline abstract above."
-        : "Refine this section as findings accumulate. Preserve the baseline abstract above.",
-    ...(mode === "optimization" ? ["", "## Target metric", metric.trim() || "Define the metric, baseline, measurement command, and target delta."] : []),
-    "",
-    "## Decision log",
-    "- Initial workspace created.",
-    "",
-  ].join("\n"));
-  writeIfMissing(paths.plan, [
-    `# ${modeTitle(mode)} Plan`,
-    "",
-    "Keep this file current after every cycle.",
-    "",
-    "## Current high-level cycle",
-    ...defaultPlanSteps(mode),
-    "",
-    "## Active plan",
-    defaultPlanItem(mode),
-    "",
-  ].join("\n"));
-  writeIfMissing(paths.backlog, `# Backlog\n\n- [ ] Decompose the next ${mode} subcycle.\n`);
-  writeIfMissing(paths.questions, "# Open Questions\n\n");
-  writeIfMissing(paths.leads, "# Leads\n\nCapture promising but unverified follow-up ideas, anomalies, weak signals, and side hypotheses here.\n");
-  writeIfMissing(paths.modeGuide, defaultModeGuide(mode));
-  writeIfMissing(paths.subagentsGuide, defaultSubagentsGuide(mode));
+  writeIfMissing(paths.state, JSON.stringify(defaultState(title, "research"), null, 2) + "\n");
+  writeFiles(genericWorkspaceFiles(paths, title), "missing");
   writeIfMissing(paths.sources, "");
   writeIfMissing(paths.findings, "");
   writeIfMissing(paths.metrics, "");
   writeIfMissing(paths.events, "");
-  writeIfMissing(paths.nextCycle, defaultNextCyclePrompt(mode));
+  return paths;
+}
+
+export function writeActiveGoalFiles(cwd: string, title: string, abstract: string, mode: AutogoalMode, metric = ""): AutogoalPaths {
+  const paths = autogoalPaths(cwd);
+  ensureWorkspaceDirs(paths);
+  writeFiles(activeGoalFiles(paths, title, abstract, mode, metric), "overwrite");
+  return paths;
+}
+
+export function ensureWorkspace(cwd: string, title = "Untitled goal", abstract = "", mode: AutogoalMode = "research", metric = ""): AutogoalPaths {
+  const paths = autogoalPaths(cwd);
+  ensureWorkspaceDirs(paths);
+
+  writeIfMissing(paths.config, JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n");
+  writeIfMissing(paths.state, JSON.stringify({ ...defaultState(title, mode), metric: metric || null }, null, 2) + "\n");
+  writeFiles(activeGoalFiles(paths, title, abstract, mode, metric), "missing");
+  writeIfMissing(paths.questions, "# Open Questions\n\n");
+  writeIfMissing(paths.leads, "# Leads\n\nCapture promising but unverified follow-up ideas, anomalies, weak signals, and side hypotheses here.\n");
+  writeIfMissing(paths.sources, "");
+  writeIfMissing(paths.findings, "");
+  writeIfMissing(paths.metrics, "");
+  writeIfMissing(paths.events, "");
   return paths;
 }
 
@@ -430,7 +495,24 @@ export function defaultNextCyclePrompt(mode: AutogoalMode = "research"): string 
 }
 
 export function composeStartMessage(abstract: string, mode: AutogoalMode = "research"): string {
-  return `/skill:autogoal ${mode} ${abstract}`.trim();
+  const goal = abstract.trim();
+  const modeAction = mode === "development"
+    ? "implement → test → review → commit"
+    : mode === "optimization"
+      ? "measure → experiment → compare metric deltas"
+      : "research → synthesize findings → capture leads";
+  return [
+    `Autogoal start: begin the first autonomous ${mode} cycle now.`,
+    "",
+    "Use the `autogoal` skill and treat `.autogoal/` in the current folder as the source of truth.",
+    "",
+    "Goal:",
+    goal,
+    "",
+    `Mode-specific loop: ${modeAction}.`,
+    "Initialize or refresh missing `.autogoal/` files, read the active goal/plan/backlog/mode guide, run one focused first cycle, persist state, and refresh `.autogoal/self-prompts/next-cycle.md`.",
+    "Keep `.autogoal/state.json` status `running` unless a safety gate or configured stop condition applies.",
+  ].join("\n");
 }
 
 export function composeCycleMessage(reason = "auto-resume", mode: AutogoalMode = "research"): string {
