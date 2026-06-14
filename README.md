@@ -1,27 +1,32 @@
-# pi-autoscope
+# pi-autogoal
 
-Autonomous long-horizon research workflow for [pi](https://pi.dev/).
+Autonomous goal loops for [pi](https://pi.dev/): research, development, and metric optimization.
+
+## Modes
+
+- **Research** — the existing long-running evidence/sources/cycle-report workflow.
+- **Development** — autonomous code work in implement → test → review → commit cycles. Normal durable output is git commits, not long-lived reports/artifacts.
+- **Optimization** — autonomous research and experiments to improve a named metric, with reproducible measurements and metric logs.
 
 ## What it provides
 
-- `/autoscope` command implemented as a pi extension.
-- `autoscope` skill with the full research-loop protocol.
-- Prompt templates for manual start/cycle/eval/status.
-- Workspace state in `.autoscope/`, so multiple research folders can run independently.
+- `/autogoal` command implemented as a pi extension.
+- `autogoal` skill with mode-specific protocols.
+- Workspace state in `.autogoal/`, so each repo/folder has durable goal state.
 - Autonomous self-prompting via `agent_end -> sendUserMessage(next-cycle)`.
-- Structured tools: `log_source`, `log_evidence`, `log_interesting`, `log_research_cycle`, `set_research_state`.
-- Deterministic compaction summary from persisted `.autoscope/` state.
-- Optional lifecycle hooks: `.autoscope/hooks/before-cycle.sh` and `.autoscope/hooks/after-cycle.sh`.
+- Structured tools: `log_source`, `log_evidence`, `log_interesting`, `log_metric`, `log_commit`, `prepare_worktree`, `log_goal_cycle`, `set_goal_state`.
+- Git worktree defaults for isolated branches.
+- Subagent guidance for planner/worker/reviewer/oracle flows, acceptance contracts, and pi-intercom coordination.
+- Deterministic compaction summary from persisted `.autogoal/` state.
+- Optional lifecycle hooks: `.autogoal/hooks/before-cycle.sh` and `.autogoal/hooks/after-cycle.sh`.
 
 ## Install locally
-
-From this repository:
 
 ```bash
 pi install /home/ramil/personal/autoresearcher
 ```
 
-Or enable it only in one research workspace with `.pi/settings.json`:
+Or enable it in one workspace with `.pi/settings.json`:
 
 ```json
 {
@@ -34,87 +39,101 @@ Then restart pi or run `/reload`.
 ## Commands
 
 ```text
-/autoscope init [title]
-/autoscope start <abstract or goal>
-/autoscope cycle [focus]
-/autoscope pause
-/autoscope resume
-/autoscope off
-/autoscope status
+/autogoal init [mode] [title]
+/autogoal start [mode] <goal>
+/autogoal research <goal>
+/autogoal dev <goal>
+/autogoal optimize <metric/goal>
+/autogoal cycle [focus]
+/autogoal pause
+/autogoal resume
+/autogoal off
+/autogoal status
 ```
+
+Modes accept aliases: `research`, `dev`/`development`, `opt`/`optimize`/`optimization`.
 
 ## Workspace layout
 
-Each research folder gets:
-
 ```text
-.autoscope/
+.autogoal/
   config.json
   state.json
   goal.md
+  mode.md
   plan.md
   backlog.md
   questions.md
   interesting.md
+  subagents.md
   sources.jsonl
   evidence.jsonl
+  metrics.jsonl
+  commits.jsonl
   events.jsonl
   cycles/
   reports/
-  self-prompts/
+  self-prompts/next-cycle.md
   artifacts/
 ```
 
-The source of truth is on disk. A fresh pi session should be able to read `.autoscope/goal.md`, `.autoscope/plan.md`, `.autoscope/state.json`, recent `.autoscope/cycles/*`, and continue.
+The source of truth is on disk. A fresh pi session should be able to read `.autogoal/goal.md`, `.autogoal/mode.md`, `.autogoal/plan.md`, `.autogoal/state.json`, recent `.autogoal/cycles/*`, and continue.
 
-## Config
+## Config highlights
 
-`.autoscope/config.json` defaults:
+`.autogoal/config.json` includes autonomy/cycle limits plus:
 
 ```json
 {
-  "autonomy": "full",
-  "maxAutoTurns": 50,
-  "maxCycles": 50,
-  "maxNoProgressCycles": 5,
-  "reviewEveryCycles": 3,
-  "oracleEveryCycles": 5,
-  "requireHumanOnGoalShift": false,
-  "settleMs": 800,
-  "stopIfRequiresHuman": true,
-  "defaultCycleBudget": "one focused subcycle unless evidence requires more"
+  "worktrees": {
+    "enabled": true,
+    "root": "../.autogoal-worktrees",
+    "branchPrefix": "autogoal/",
+    "cleanupMerged": false
+  },
+  "subagents": {
+    "enabled": true,
+    "preferredAgents": ["scout", "planner", "worker", "reviewer", "oracle", "researcher", "delegate"],
+    "useAcceptance": true,
+    "useIntercom": true,
+    "maxParallel": 4,
+    "timeoutPolicy": "no-timeout-by-default; if required, use an intentionally high limit and document why"
+  }
 }
 ```
 
+Subagent recommendation: do **not** set `timeoutMs`/`maxRuntimeMs` for autonomous subagent work by default. If a limit is required, make it intentionally high and document why.
+
 ## Structured tools
 
-When Autoscope is active, the extension enables tools for durable state updates:
+- `log_source` → append `.autogoal/sources.jsonl`
+- `log_evidence` → append `.autogoal/evidence.jsonl`
+- `log_interesting` → append `.autogoal/interesting.md` and `.autogoal/events.jsonl`
+- `log_metric` → append `.autogoal/metrics.jsonl` for optimization measurements
+- `log_commit` → append `.autogoal/commits.jsonl` for development commits
+- `prepare_worktree` → create an isolated git worktree/branch and record it in state
+- `log_goal_cycle` → write `cycles/cycle-NNN.md`, refresh `self-prompts/next-cycle.md`, advance `state.json`
+- `set_goal_state` → patch mode/status/auto/title/metric/repo/branch/worktree/human gate
 
-- `log_source` → append `.autoscope/sources.jsonl`
-- `log_evidence` → append `.autoscope/evidence.jsonl`
-- `log_interesting` → append `.autoscope/interesting.md` and `.autoscope/events.jsonl`
-- `log_research_cycle` → write `cycles/cycle-NNN.md`, refresh `self-prompts/next-cycle.md`, advance `state.json`. For long next prompts, write `.autoscope/self-prompts/next-cycle.md` first and pass `nextPromptFile` instead of a huge inline `nextPrompt`.
-- `set_research_state` → patch status/auto/requiresHuman/title/cycle index
+Development mode should normally leave durable progress in git commits. `log_goal_cycle` is still available for state advancement and next-cycle prompts.
 
-Large reports and datasets should be written under `.autoscope/artifacts/` or the living Markdown files directly. Avoid sending large artifact bodies through function-call arguments; if a `[truncated]` marker appears, rewrite the full artifact before logging the cycle.
+## GitHub and worktrees
 
-## Compaction
+Autogoal may use local git and the GitHub CLI (`gh`) when available. External mutations still require explicit user confirmation: push, publish, deploy, repository rename, destructive changes, or remote settings changes.
 
-During pi compaction, Autoscope synthesizes a deterministic markdown summary from persisted workspace files: goal, plan, backlog, interesting notes, recent cycles, recent evidence, and recent sources. This avoids relying on a lossy chat summary for long-running research.
+## Compaction and hooks
 
-## Hooks
+During pi compaction, Autogoal synthesizes a deterministic markdown summary from persisted workspace files: goal, mode, plan, backlog, interesting notes, recent cycles, evidence, sources, metrics, and commits.
 
 Executable hooks can steer the next turn:
 
 ```text
-.autoscope/hooks/before-cycle.sh
-.autoscope/hooks/after-cycle.sh
+.autogoal/hooks/before-cycle.sh
+.autogoal/hooks/after-cycle.sh
 ```
 
-They receive a single JSON object on stdin. Stdout is sent back to the agent as a steer message. Hook metadata is appended to `.autoscope/events.jsonl`.
+They receive a JSON object on stdin. Stdout is sent back as a steer message. Hook metadata is appended to `.autogoal/events.jsonl`.
 
 ## Safety
 
-Autoscope can run autonomously, but it still follows pi/global safety rules: no destructive actions, deploys, payments, publishing, or secret disclosure without explicit confirmation.
-
-See `examples/minimal-research/` for a small workspace skeleton.
+Autogoal can run autonomously, but it still follows pi/global safety rules: no destructive actions, deploys, payments, publishing, remote repository mutations, or secret disclosure without explicit confirmation.

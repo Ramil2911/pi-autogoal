@@ -1,12 +1,15 @@
 {
-  "name": "pi-autoscope",
+  "name": "pi-autogoal",
   "version": "0.2.0",
-  "description": "Long-running autonomous research loops for pi workspaces.",
+  "description": "Autonomous goal loops for research, development, and metric optimization in pi.",
   "type": "module",
   "keywords": [
     "pi-package",
     "pi",
+    "goals",
     "research",
+    "development",
+    "optimization",
     "agent"
   ],
   "license": "MIT",

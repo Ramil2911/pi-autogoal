@@ -8,12 +8,12 @@ import {
   assistantLimitExhaustionReason,
   containsTruncationMarker,
   limitExhaustionReason,
-} from "../extensions/autoscope/safety.ts";
-import { readNextPromptInput } from "../extensions/autoscope/index.ts";
-import { ensureWorkspace } from "../extensions/autoscope/workspace.ts";
+} from "../extensions/autogoal/safety.ts";
+import { readNextPromptInput } from "../extensions/autogoal/index.ts";
+import { ensureWorkspace } from "../extensions/autogoal/workspace.ts";
 
 function tmpdir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "autoscope-safety-test-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "autogoal-safety-test-"));
 }
 
 test("limitExhaustionReason recognizes quota and token/context failures", () => {
@@ -40,18 +40,18 @@ test("containsTruncationMarker detects common tool/output truncation markers", (
   assert.equal(containsTruncationMarker("complete next prompt"), false);
 });
 
-test("readNextPromptInput accepts regular files inside .autoscope", () => {
+test("readNextPromptInput accepts regular files inside .autogoal", () => {
   const dir = tmpdir();
   const paths = ensureWorkspace(dir);
   fs.writeFileSync(paths.nextCycle, "Continue with full prompt\n");
 
   assert.deepEqual(
-    readNextPromptInput(dir, { nextPromptFile: ".autoscope/self-prompts/next-cycle.md" }),
-    { ok: true, text: "Continue with full prompt", file: ".autoscope/self-prompts/next-cycle.md" },
+    readNextPromptInput(dir, { nextPromptFile: ".autogoal/self-prompts/next-cycle.md" }),
+    { ok: true, text: "Continue with full prompt", file: ".autogoal/self-prompts/next-cycle.md" },
   );
 });
 
-test("readNextPromptInput rejects symlinks and paths outside .autoscope", () => {
+test("readNextPromptInput rejects symlinks and paths outside .autogoal", () => {
   const dir = tmpdir();
   const paths = ensureWorkspace(dir);
   const external = path.join(dir, "external-next.md");
@@ -60,15 +60,15 @@ test("readNextPromptInput rejects symlinks and paths outside .autoscope", () => 
   const symlink = path.join(paths.selfPromptsDir, "external-link.md");
   fs.symlinkSync(external, symlink);
 
-  const linkResult = readNextPromptInput(dir, { nextPromptFile: ".autoscope/self-prompts/external-link.md" });
+  const linkResult = readNextPromptInput(dir, { nextPromptFile: ".autogoal/self-prompts/external-link.md" });
   assert.equal(linkResult.ok, false);
   assert.match(linkResult.error, /symbolic link/);
 
   const outsideResult = readNextPromptInput(dir, { nextPromptFile: "external-next.md" });
   assert.equal(outsideResult.ok, false);
-  assert.match(outsideResult.error, /inside \.autoscope/);
+  assert.match(outsideResult.error, /inside \.autogoal/);
 
-  const directoryResult = readNextPromptInput(dir, { nextPromptFile: ".autoscope/self-prompts" });
+  const directoryResult = readNextPromptInput(dir, { nextPromptFile: ".autogoal/self-prompts" });
   assert.equal(directoryResult.ok, false);
   assert.match(directoryResult.error, /regular file/);
 });

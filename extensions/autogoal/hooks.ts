@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { appendEvent, type JsonRecord } from "./jsonl.ts";
-import { autoscopePaths } from "./workspace.ts";
+import { autogoalPaths } from "./workspace.ts";
 
 export type HookName = "before-cycle" | "after-cycle";
 
@@ -19,7 +19,7 @@ const TIMEOUT_MS = 30_000;
 const STDOUT_MAX = 8 * 1024;
 
 function hookPath(cwd: string, name: HookName): string {
-  return path.join(autoscopePaths(cwd).root, "hooks", `${name}.sh`);
+  return path.join(autogoalPaths(cwd).root, "hooks", `${name}.sh`);
 }
 
 function executable(file: string): boolean {
@@ -31,7 +31,7 @@ function executable(file: string): boolean {
   }
 }
 
-export async function runAutoscopeHook(cwd: string, name: HookName, payload: JsonRecord): Promise<HookResult> {
+export async function runAutogoalHook(cwd: string, name: HookName, payload: JsonRecord): Promise<HookResult> {
   const script = hookPath(cwd, name);
   if (!executable(script)) return { fired: false, stdout: "", stderr: "", exitCode: null, timedOut: false, durationMs: 0 };
   const started = Date.now();
@@ -58,14 +58,14 @@ export async function runAutoscopeHook(cwd: string, name: HookName, payload: Jso
 
 export function hookMessage(name: HookName, result: HookResult): string | null {
   if (!result.fired) return null;
-  if (result.timedOut) return `[autoscope ${name} hook timed out]`;
-  if (result.exitCode !== 0) return [`[autoscope ${name} hook failed: ${result.exitCode}]`, result.stderr, result.stdout].filter(Boolean).join("\n");
+  if (result.timedOut) return `[autogoal ${name} hook timed out]`;
+  if (result.exitCode !== 0) return [`[autogoal ${name} hook failed: ${result.exitCode}]`, result.stderr, result.stdout].filter(Boolean).join("\n");
   return result.stdout.trim() || null;
 }
 
 export function logHook(cwd: string, name: HookName, result: HookResult): void {
   if (!result.fired) return;
-  appendEvent(autoscopePaths(cwd).events, "hook", {
+  appendEvent(autogoalPaths(cwd).events, "hook", {
     hook: name,
     exitCode: result.exitCode,
     timedOut: result.timedOut,

@@ -8,21 +8,21 @@ import {
   appendJsonl,
   countJsonl,
   tailJsonl,
-} from "../extensions/autoscope/jsonl.ts";
-import { buildAutoscopeCompactionSummary } from "../extensions/autoscope/compaction.ts";
+} from "../extensions/autogoal/jsonl.ts";
+import { buildAutogoalCompactionSummary } from "../extensions/autogoal/compaction.ts";
 import {
   composeCycleMessage,
   ensureWorkspace,
   inferTitle,
-  autoscopePaths,
+  autogoalPaths,
   readConfig,
   readState,
   writeState,
   workspaceExists,
-} from "../extensions/autoscope/workspace.ts";
+} from "../extensions/autogoal/workspace.ts";
 
 function tmpdir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "autoscope-test-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "autogoal-test-"));
 }
 
 test("ensureWorkspace creates the required layout without overwriting state", () => {
@@ -30,7 +30,7 @@ test("ensureWorkspace creates the required layout without overwriting state", ()
   assert.equal(workspaceExists(dir), false);
   const paths = ensureWorkspace(dir, "Test Research", "Initial abstract");
   assert.equal(workspaceExists(dir), true);
-  for (const p of [paths.config, paths.state, paths.goal, paths.plan, paths.backlog, paths.questions, paths.interesting, paths.sources, paths.evidence, paths.events, paths.nextCycle]) {
+  for (const p of [paths.config, paths.state, paths.goal, paths.plan, paths.backlog, paths.questions, paths.interesting, paths.modeGuide, paths.subagentsGuide, paths.sources, paths.evidence, paths.metrics, paths.commits, paths.events, paths.nextCycle]) {
     assert.equal(fs.existsSync(p), true, p);
   }
   assert.match(fs.readFileSync(paths.goal, "utf-8"), /Initial abstract/);
@@ -48,20 +48,42 @@ test("readConfig and readState apply defaults and preserve valid values", () => 
   const state = readState(dir);
   assert.equal(config.maxAutoTurns, 3);
   assert.equal(config.autonomy, "supervised");
+  assert.equal(config.worktrees.enabled, true);
+  assert.equal(config.worktrees.root, "../.autogoal-worktrees");
+  assert.equal(config.subagents.enabled, true);
+  assert.equal(config.subagents.useAcceptance, true);
+  assert.match(config.subagents.timeoutPolicy, /no-timeout/);
   assert.equal(typeof config.maxCycles, "number");
   assert.equal(typeof config.reviewEveryCycles, "number");
   assert.equal(typeof config.settleMs, "number");
   assert.equal(state.status, "paused");
+  assert.equal(state.mode, "research");
   assert.equal(state.auto, true);
   assert.equal(state.title, "X");
   assert.equal(state.requiresHuman, true);
 });
 
 test("inferTitle and composeCycleMessage are stable", () => {
-  assert.equal(inferTitle(""), "Untitled research");
+  assert.equal(inferTitle(""), "Untitled goal");
   assert.ok(inferTitle("a".repeat(100)).length <= 72);
-  assert.match(composeCycleMessage("test"), /Autoscope test/);
-  assert.match(composeCycleMessage("test"), /\.autoscope\//);
+  assert.match(composeCycleMessage("test", "development"), /Autogoal test/);
+  assert.match(composeCycleMessage("test", "development"), /development cycle/);
+  assert.match(composeCycleMessage("test"), /\.autogoal\//);
+});
+
+test("ensureWorkspace creates mode-specific development and optimization guides", () => {
+  const devDir = tmpdir();
+  const dev = ensureWorkspace(devDir, "Build feature", "Implement feature", "development");
+  assert.equal(readState(devDir).mode, "development");
+  assert.match(fs.readFileSync(dev.modeGuide, "utf-8"), /git commits/);
+  assert.match(fs.readFileSync(dev.nextCycle, "utf-8"), /development loop/);
+
+  const optDir = tmpdir();
+  const opt = ensureWorkspace(optDir, "Speed up tests", "Improve test runtime", "optimization", "test runtime p95");
+  assert.equal(readState(optDir).mode, "optimization");
+  assert.equal(readState(optDir).metric, "test runtime p95");
+  assert.match(fs.readFileSync(opt.goal, "utf-8"), /test runtime p95/);
+  assert.match(fs.readFileSync(opt.nextCycle, "utf-8"), /optimization loop/);
 });
 
 test("jsonl helpers append, count, and tail records", () => {
@@ -79,10 +101,14 @@ test("compaction summary is built from persisted workspace files", () => {
   fs.writeFileSync(path.join(paths.cyclesDir, "cycle-001.md"), "# Cycle 1\n\nFinding X");
   appendJsonl(paths.sources, { type: "source", title: "Source A" });
   appendJsonl(paths.evidence, { type: "evidence", claim: "Claim A" });
-  const summary = buildAutoscopeCompactionSummary(dir);
-  assert.match(summary, /Autoscope Compaction Summary/);
+  appendJsonl(paths.metrics, { type: "metric", name: "Latency", value: "10ms" });
+  appendJsonl(paths.commits, { type: "commit", sha: "abc123", summary: "Change" });
+  const summary = buildAutogoalCompactionSummary(dir);
+  assert.match(summary, /Autogoal Compaction Summary/);
   assert.match(summary, /Compaction Test/);
   assert.match(summary, /Finding X/);
   assert.match(summary, /Source A/);
   assert.match(summary, /Claim A/);
+  assert.match(summary, /Latency/);
+  assert.match(summary, /abc123/);
 });
