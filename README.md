@@ -20,17 +20,25 @@ Autonomous goal loops for [pi](https://pi.dev/): research, development, and metr
 - Deterministic compaction summary from persisted `.autogoal/` state.
 - Optional lifecycle hooks: `.autogoal/hooks/before-cycle.sh` and `.autogoal/hooks/after-cycle.sh`.
 
-## Install locally
+## Install
+
+Install the package from GitHub:
 
 ```bash
-pi install /home/ramil/personal/autoresearcher
+pi install https://github.com/Ramil2911/pi-autogoal
 ```
 
-Or enable it in one workspace with `.pi/settings.json`:
+For local development, run the command from this repository checkout:
+
+```bash
+pi install .
+```
+
+Or enable a local checkout in one workspace with `.pi/settings.json`:
 
 ```json
 {
-  "packages": ["/home/ramil/personal/autoresearcher"]
+  "packages": ["/path/to/pi-autogoal"]
 }
 ```
 
@@ -38,12 +46,43 @@ Then restart pi or run `/reload`.
 
 ## Commands
 
+### Create or start a goal
+
+Use `init` when you only want to create `.autogoal/` state without starting autonomous self-resume:
+
 ```text
 /autogoal init [mode] [title]
+```
+
+Use `start` when you want to choose the mode explicitly in one command:
+
+```text
 /autogoal start [mode] <goal>
+```
+
+Modes: `research`, `dev`/`development`, `opt`/`optimize`/`optimization`.
+
+### Mode shortcuts
+
+These are clearer aliases for `start [mode]`:
+
+```text
 /autogoal research <goal>
 /autogoal dev <goal>
 /autogoal optimize <metric/goal>
+```
+
+Examples:
+
+```text
+/autogoal research Compare local-first agent memory designs
+/autogoal dev Add worktree cleanup support and commit it
+/autogoal optimize Reduce npm test runtime by 30%
+```
+
+### Manual cycle and controls
+
+```text
 /autogoal cycle [focus]
 /autogoal pause
 /autogoal resume
@@ -51,7 +90,11 @@ Then restart pi or run `/reload`.
 /autogoal status
 ```
 
-Modes accept aliases: `research`, `dev`/`development`, `opt`/`optimize`/`optimization`.
+- `cycle` runs one supervised cycle without enabling auto-resume.
+- `pause` stops auto-resume but keeps tools/state available.
+- `resume` enables auto-resume again and sends the next-cycle prompt.
+- `off` stops Autogoal and disables gated Autogoal tools.
+- `status` shows the active mode, cycle counters, evidence/metric/commit counts, and human gate state.
 
 ## Workspace layout
 

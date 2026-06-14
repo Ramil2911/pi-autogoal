@@ -41,13 +41,14 @@ const numberProp = (description: string) => ({ type: "number", description });
 function help(): string {
   return [
     "Autogoal commands:",
-    "  /autogoal init [mode] [title]        create .autogoal workspace",
-    "  /autogoal start [mode] <goal>        start autonomous goal loop",
-    "  /autogoal research <goal>            start research mode",
-    "  /autogoal dev <goal>                 start development mode",
-    "  /autogoal optimize <metric/goal>     start optimization mode",
-    "  /autogoal cycle [focus]              run one next-cycle prompt",
-    "  /autogoal pause|resume|off|status    manage auto-resume",
+    "  create only:  /autogoal init [mode] [title]",
+    "  start loop:   /autogoal start [mode] <goal>",
+    "  research:     /autogoal research <goal>",
+    "  development:  /autogoal dev <goal>",
+    "  optimization: /autogoal optimize <metric/goal>",
+    "  one cycle:    /autogoal cycle [focus]",
+    "  controls:     /autogoal pause | resume | off | status",
+    "Modes: research, dev/development, opt/optimize/optimization.",
   ].join("\n");
 }
 
