@@ -1,0 +1,39 @@
+{
+  "name": "pi-autoscope",
+  "version": "0.2.0",
+  "description": "Long-running autonomous research loops for pi workspaces.",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "research",
+    "agent"
+  ],
+  "license": "MIT",
+  "files": [
+    "README.md",
+    "extensions/",
+    "skills/",
+    "prompts/",
+    "examples/",
+    "tests/"
+  ],
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.mjs"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {}
+}

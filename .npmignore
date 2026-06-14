@@ -1,0 +1,8 @@
+reference/
+.git/
+.pi/
+.autoscope/
+node_modules/
+*.tgz
+*.log
+coverage/
