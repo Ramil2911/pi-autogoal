@@ -442,6 +442,7 @@ export default function autogoalExtension(pi: ExtensionAPI) {
       `Workspace state lives in \`${AUTOGOAL_DIR}/\`. Treat these files as the source of truth, not the chat history.`,
       `Read/update: \`${paths.goal}\`, \`${paths.plan}\`, \`${paths.backlog}\`, \`${paths.modeGuide}\`, \`${paths.subagentsGuide}\`, and \`${paths.nextCycle}\`.`,
       runPaths ? `Active run id is \`${state.runId}\`; preserve run-specific artifacts under \`${runPaths.root}\`, especially \`${runPaths.artifactsDir}\`. Do not overwrite artifacts from sibling runs.` : "No active run id is set yet; start a goal to create one under `.autogoal/runs/`.",
+      mode === "development" && state.worktreePath ? `Development worktree is \`${state.worktreePath}\`; do code edits, tests, reviews, and commits there by default.` : "",
       "Use Autogoal tools when available: log_source, log_finding, log_lead, log_metric, prepare_worktree, log_goal_cycle, set_goal_state. Legacy aliases log_evidence/log_interesting may exist for old workspaces.",
       mode === "development"
         ? "Development durability rule: normal progress should be durable through git commits, not long-lived reports/artifacts. Run relevant tests before committing."
@@ -735,13 +736,27 @@ export default function autogoalExtension(pi: ExtensionAPI) {
         ensureWorkspace(ctx.cwd, title, trimmedGoal, mode, metric);
         writeActiveGoalFiles(ctx.cwd, title, trimmedGoal, mode, metric);
         ensureRunWorkspace(ctx.cwd, runId, title, trimmedGoal, mode, metric);
+        let autoWorktree: { path: string; branch: string } | undefined;
+        if (mode === "development") {
+          const config = readConfig(ctx.cwd);
+          if (config.worktrees.enabled) {
+            try {
+              autoWorktree = createWorktree(ctx.cwd, mode, runId);
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              appendEvent(autogoalPaths(ctx.cwd).events, "worktree_failed", { mode, runId, message });
+              ctx.ui.notify(`Autogoal could not create a development worktree; continuing in current checkout. ${message}`, "warning");
+            }
+          }
+        }
         writeState(ctx.cwd, {
           mode,
           title,
           metric: mode === "optimization" ? trimmedGoal : readState(ctx.cwd).metric,
           runId,
           repository: ctx.cwd,
-          branch: currentBranch(ctx.cwd),
+          branch: autoWorktree?.branch ?? currentBranch(ctx.cwd),
+          worktreePath: autoWorktree?.path ?? null,
           status: "running",
           auto: true,
           autoTurnsSent: 0,
@@ -750,11 +765,12 @@ export default function autogoalExtension(pi: ExtensionAPI) {
         });
         setAutogoalTools(ctx, true);
         appendEvent(autogoalPaths(ctx.cwd).events, "start", { mode, title, runId });
-        appendRunJsonl(ctx.cwd, "events", { type: "start", mode, title }, readState(ctx.cwd));
+        if (autoWorktree) appendEvent(autogoalPaths(ctx.cwd).events, "worktree", { mode, runId, ...autoWorktree, auto: true });
+        appendRunJsonl(ctx.cwd, "events", { type: "start", mode, title, worktree: autoWorktree }, readState(ctx.cwd));
         ctx.ui.notify(`Autogoal ${mode} mode running in ${AUTOGOAL_DIR}/ (run ${runId})`, "info");
         await fireBeforeHook(ctx, `start-${mode}`);
         markCyclePromptSent(ctx);
-        sendWhenReady(pi, ctx, composeStartMessage(trimmedGoal, mode, runId));
+        sendWhenReady(pi, ctx, composeStartMessage(trimmedGoal, mode, runId, autoWorktree?.path));
       };
 
       if (command === "init") {

@@ -15,7 +15,7 @@ Autonomous goal loops for [pi](https://pi.dev/): research, development, and metr
 - Workspace state in `.autogoal/`, so each repo/folder has durable goal state.
 - Autonomous self-prompting via `agent_end -> sendUserMessage(next-cycle)`.
 - Structured tools: `log_source`, `log_finding`, `log_lead`, `log_metric`, `prepare_worktree`, `log_goal_cycle`, `set_goal_state`.
-- Git worktree defaults for isolated branches.
+- Git worktree defaults for isolated branches; development starts create a worktree automatically when available.
 - Subagent guidance for planner/worker/reviewer/oracle flows, acceptance contracts, and pi-intercom coordination.
 - Deterministic compaction summary from persisted `.autogoal/` state.
 - Optional lifecycle hooks: `.autogoal/hooks/before-cycle.sh` and `.autogoal/hooks/after-cycle.sh`.
@@ -64,6 +64,8 @@ Use `start` when you want to choose the mode and begin a specific goal loop:
 Modes: `research`, `dev`/`development`, `opt`/`optimize`/`optimization`.
 
 Every `start` creates a run namespace under `.autogoal/runs/<run-id>/`. If the requested run id already exists, Autogoal allocates a suffix such as `feature-2` instead of overwriting previous artifacts.
+
+Development starts also create a git worktree by default when `.autogoal/config.json` has `worktrees.enabled: true` and the current folder is a git repository. The worktree path is stored in `.autogoal/state.json` as `worktreePath`, and the first-cycle prompt tells the agent to do code edits, tests, reviews, and commits there. If worktree creation fails, Autogoal warns and continues in the current checkout.
 
 ### Mode shortcuts
 
@@ -171,7 +173,7 @@ Development mode should normally leave durable progress in git commits. `log_goa
 
 ## GitHub and worktrees
 
-Autogoal may use local git and the GitHub CLI (`gh`) when available. External mutations still require explicit user confirmation: push, publish, deploy, repository rename, destructive changes, or remote settings changes.
+Autogoal may use local git and the GitHub CLI (`gh`) when available. In development mode, `/autogoal start dev ...` creates an isolated worktree by default when worktrees are enabled. External mutations still require explicit user confirmation: push, publish, deploy, repository rename, destructive changes, or remote settings changes.
 
 ## Compaction and hooks
 

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 import autogoalExtension from "../extensions/autogoal/index.ts";
 import { readState, autogoalPaths, runAutogoalPaths } from "../extensions/autogoal/workspace.ts";
@@ -96,7 +97,31 @@ test("/autogoal start dev sends explicit development first-cycle prompt", async 
   assert.equal(sent.length, 1);
   assert.match(sent[0].message, /first autonomous development cycle now/);
   assert.match(sent[0].message, new RegExp(`\\.autogoal/runs/${state.runId}/artifacts/`));
+  assert.match(sent[0].message, /worktree was not created automatically/);
   assert.doesNotMatch(sent[0].message, /^\/skill:/);
+});
+
+test("/autogoal start dev creates a development worktree by default in git repos", async () => {
+  const dir = tmpdir();
+  execFileSync("git", ["init", "-b", "main"], { cwd: dir });
+  execFileSync("git", ["config", "user.name", "Autogoal Test"], { cwd: dir });
+  execFileSync("git", ["config", "user.email", "autogoal@example.invalid"], { cwd: dir });
+  fs.writeFileSync(path.join(dir, "README.md"), "# Test\n");
+  execFileSync("git", ["add", "README.md"], { cwd: dir });
+  execFileSync("git", ["commit", "-m", "initial"], { cwd: dir });
+
+  const { command, sent } = makeHarness();
+  const ctx = makeCtx(dir);
+
+  await command.handler("start --run feature-a dev Add search filters", ctx);
+
+  const state = readState(dir);
+  assert.equal(state.mode, "development");
+  assert.equal(state.runId, "feature-a");
+  assert.ok(state.worktreePath);
+  assert.equal(fs.existsSync(path.join(state.worktreePath, "README.md")), true);
+  assert.match(state.branch, /^autogoal\/development\/feature-a-/);
+  assert.ok(sent[0].message.includes(`Development worktree: ${state.worktreePath}`));
 });
 
 test("/autogoal start --run keeps previous run artifacts by allocating unique run dirs", async () => {

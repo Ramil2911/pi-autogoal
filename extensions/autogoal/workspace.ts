@@ -462,7 +462,7 @@ export function defaultModeGuide(mode: AutogoalMode): string {
     "",
     "Primary loop: inspect → plan slice → implement → test/lint/typecheck → review → commit → select next slice.",
     "Durability rule: do not create long-lived reports/artifacts for normal progress. Use git commits and concise `.autogoal/events.jsonl` records.",
-    "Use git worktrees for isolated branches when work is parallel, risky, or needs reviewer/worker separation.",
+    "Development starts create a git worktree automatically by default when available. Use the `worktreePath` in `.autogoal/state.json` for code edits, tests, reviews, and commits.",
     "Do not push, publish, deploy, rename remote repositories, or mutate external systems unless the user explicitly authorizes that action.",
     "",
   ].join("\n");
@@ -519,7 +519,7 @@ export function defaultNextCyclePrompt(mode: AutogoalMode = "research"): string 
       "",
       "Required actions:",
       "1. Read `.autogoal/goal.md`, `.autogoal/plan.md`, `.autogoal/backlog.md`, `.autogoal/mode.md`, `.autogoal/subagents.md`, and git status/log.",
-      "2. Pick one small implementation slice; use git worktrees/subagents for isolated or parallel work when useful.",
+      "2. Pick one small implementation slice; use the recorded `worktreePath` for code edits when present, and use subagents for isolated or parallel work when useful.",
       "3. Implement, run relevant tests/lint/typecheck, review the diff, and create a git commit for verified code changes.",
       "4. Do not write durable reports/artifacts for normal progress; update only concise state/backlog/events/self-prompt as needed.",
       "5. Update `.autogoal/state.json` and `.autogoal/self-prompts/next-cycle.md`. Stop only for safety gates or configured limits.",
@@ -549,7 +549,7 @@ export function defaultNextCyclePrompt(mode: AutogoalMode = "research"): string 
   ].join("\n");
 }
 
-export function composeStartMessage(abstract: string, mode: AutogoalMode = "research", runId?: string): string {
+export function composeStartMessage(abstract: string, mode: AutogoalMode = "research", runId?: string, worktreePath?: string): string {
   const goal = abstract.trim();
   const modeAction = mode === "development"
     ? "implement → test → review → commit"
@@ -561,6 +561,11 @@ export function composeStartMessage(abstract: string, mode: AutogoalMode = "rese
     "",
     "Use the `autogoal` skill and treat `.autogoal/` in the current folder as the source of truth.",
     runId ? `Active run id: ${runId}. Preserve run-specific artifacts under \`.autogoal/runs/${runId}/\` (especially \`.autogoal/runs/${runId}/artifacts/\`).` : "",
+    mode === "development" && worktreePath
+      ? `Development worktree: ${worktreePath}. Do code edits, tests, reviews, and commits in that worktree by default; keep the original checkout as the supervisor workspace.`
+      : mode === "development"
+        ? "Development worktree was not created automatically; continue in the current checkout only if git worktrees are unavailable or disabled."
+        : "",
     "",
     "Goal:",
     goal,

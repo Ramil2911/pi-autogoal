@@ -59,7 +59,7 @@ Each `/autogoal start` has a run id in `.autogoal/state.json` and a durable name
 
 1. Read `.autogoal/` state plus `git status`, recent commits, and project tests.
 2. Select one small valuable implementation slice.
-3. Use `prepare_worktree` or git worktrees for isolated/risky/parallel edits.
+3. Use the `worktreePath` recorded in `.autogoal/state.json` for code edits when present. Development starts create this worktree automatically by default; use `prepare_worktree` only when a replacement/additional worktree is needed.
 4. Use subagents when useful: `scout` for context, `planner` for a plan, `worker` for implementation, `reviewer` for diff review, `oracle` for consistency.
 5. Run relevant tests/lint/typecheck, review the diff, commit verified changes, and rely on git/GitHub history.
 6. Avoid durable ad-hoc reports/artifacts for normal progress. Keep concise state/backlog/next-prompt updates only.
